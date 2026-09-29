@@ -55,7 +55,7 @@ test/fixtures.js, test/*.test.js
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test"
+    "test": "node --test \"test/**/*.test.js\""
   }
 }
 ```
