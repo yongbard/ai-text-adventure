@@ -1,0 +1,86 @@
+:root {
+  --bg: #0f0e13;
+  --panel: #17151d;
+  --line: #2a2733;
+  --text: #e6e1d6;
+  --muted: #9a93a6;
+  --accent: #c9a45c;
+  --ok: #6fbf73;
+  --fail: #d06a5f;
+  --crit: #f2c14e;
+  --fumble: #ff4d4d;
+  --hp: #c0392b;
+  --serif: 'Noto Serif KR', 'Nanum Myeongjo', Batang, serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font-family: 'Pretendard', 'Malgun Gothic', system-ui, sans-serif; }
+[hidden] { display: none !important; }
+button, input {
+  font: inherit; color: var(--text); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px;
+}
+button { cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled, input:disabled { opacity: .5; cursor: default; }
+input:focus { outline: none; border-color: var(--accent); }
+
+#start { max-width: 640px; margin: 0 auto; padding: 12vh 16px; text-align: center; }
+#start h1 { font-family: var(--serif); color: var(--accent); }
+.sub { color: var(--muted); }
+.genres { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 32px 0 16px; }
+.genre { padding: 20px 8px; font-size: 1.05rem; }
+.custom { display: flex; gap: 8px; }
+.custom input { flex: 1; }
+.continue { margin-top: 24px; border-color: var(--accent); color: var(--accent); }
+.loading { color: var(--accent); animation: pulse 1.5s infinite; }
+.notice { background: #3a1f1f; border: 1px solid var(--fail); padding: 12px; border-radius: 8px; margin: 16px 0; }
+@keyframes pulse { 50% { opacity: .4; } }
+
+.layout { display: grid; grid-template-columns: 1fr 300px; height: 100vh; }
+.story-col { display: flex; flex-direction: column; min-width: 0; border-right: 1px solid var(--line); }
+.story-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 16px 24px; border-bottom: 1px solid var(--line);
+}
+.story-head h2 { margin: 0; font-family: var(--serif); color: var(--accent); font-size: 1.3rem; }
+#turn { color: var(--muted); }
+.story { flex: 1; overflow-y: auto; padding: 24px; font-family: var(--serif); line-height: 1.85; font-size: 1.05rem; }
+.story > div { margin-bottom: 16px; white-space: pre-wrap; }
+.intro { color: var(--muted); font-style: italic; }
+.player { color: var(--accent); font-family: system-ui, sans-serif; }
+.roll {
+  font-family: ui-monospace, Consolas, monospace; font-size: .92rem; background: var(--panel);
+  border-left: 3px solid var(--line); padding: 8px 12px; border-radius: 4px;
+}
+.roll.ok { border-color: var(--ok); }
+.roll.fail { border-color: var(--fail); }
+.roll.crit { border-color: var(--crit); color: var(--crit); }
+.roll.fumble { border-color: var(--fumble); color: var(--fumble); }
+.roll .reason, .roll .changes { color: var(--muted); font-size: .85rem; margin-top: 4px; }
+.thinking { color: var(--muted); animation: pulse 1.5s infinite; }
+.error { color: var(--fail); }
+.epilogue { border-top: 1px solid var(--accent); padding-top: 16px; }
+.ending {
+  background: var(--panel); border: 1px solid var(--accent); border-radius: 8px;
+  padding: 16px 20px; font-family: system-ui, sans-serif;
+}
+.ending h3 { margin: 0 0 8px; color: var(--accent); }
+.input-row { display: flex; gap: 8px; padding: 16px 24px; border-top: 1px solid var(--line); }
+.input-row input { flex: 1; }
+
+.panel { padding: 20px; overflow-y: auto; background: var(--panel); }
+.block { margin-bottom: 20px; border-radius: 6px; }
+.label { color: var(--muted); font-size: .85rem; margin-bottom: 6px; }
+.small { font-size: .9rem; color: var(--muted); }
+#location { font-weight: 600; margin-bottom: 4px; }
+.bar { height: 10px; background: var(--line); border-radius: 5px; overflow: hidden; }
+#hp-bar { height: 100%; background: var(--hp); transition: width .5s; }
+#hp-bar.low { background: var(--fumble); }
+.flash { animation: flash .8s; }
+@keyframes flash { from { background: rgba(201, 164, 92, .35); } to { background: transparent; } }
+#stats { display: flex; gap: 12px; flex-wrap: wrap; font-size: .9rem; }
+#inventory { list-style: none; margin: 0; padding: 0; }
+#inventory li { padding: 3px 0; }
+#inventory li.new { color: var(--crit); }
+#inventory li.new::after { content: ' ✨'; }

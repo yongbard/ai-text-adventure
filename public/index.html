@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI 텍스트 어드벤처</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="start">
+    <h1>🎲 AI 텍스트 어드벤처</h1>
+    <p class="sub">자유롭게 행동하세요. 개연성이 확률이 되고, 주사위가 운명을 정합니다.</p>
+    <div id="status-msg" class="notice" hidden></div>
+    <div class="genres">
+      <button class="genre" data-genre="다크 판타지 — 버려진 성당과 저주받은 유물">🕯 다크 판타지</button>
+      <button class="genre" data-genre="좀비 아포칼립스 — 현대 한국 도시에서의 생존">🧟 좀비 생존</button>
+      <button class="genre" data-genre="SF 미스터리 — 고립된 우주선에서 깨어남">🚀 우주선 SF</button>
+    </div>
+    <form id="custom-form" class="custom">
+      <input id="custom-genre" placeholder="직접 입력 (예: 조선시대 귀신 나오는 한옥)" maxlength="100">
+      <button>시작</button>
+    </form>
+    <button id="continue-btn" class="continue" hidden>▶ 이어하기</button>
+    <p id="loading" class="loading" hidden></p>
+  </main>
+
+  <div id="game" class="layout" hidden>
+    <section class="story-col">
+      <header class="story-head">
+        <h2 id="title"></h2>
+        <span id="turn"></span>
+      </header>
+      <div id="story" class="story"></div>
+      <form id="input-form" class="input-row">
+        <input id="action-input" placeholder="무엇을 하시겠습니까?" maxlength="300" autocomplete="off">
+        <button id="action-btn">실행</button>
+      </form>
+    </section>
+    <aside class="panel">
+      <div class="block" id="hp-block">
+        <div class="label">❤ 체력 <span id="hp-text"></span></div>
+        <div class="bar"><div id="hp-bar"></div></div>
+      </div>
+      <div class="block" id="stats"></div>
+      <div class="block"><div class="label">🎯 목표</div><div id="goal" class="small"></div></div>
+      <div class="block">
+        <div class="label">📍 현재 위치</div>
+        <div id="location"></div>
+        <div id="exits" class="small"></div>
+      </div>
+      <div class="block"><div class="label">🎒 소지품</div><ul id="inventory"></ul></div>
+      <div class="block"><div class="label">🗺 가본 곳</div><div id="visited" class="small"></div></div>
+    </aside>
+  </div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
