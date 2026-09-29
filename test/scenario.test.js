@@ -91,6 +91,28 @@ test('generateScenario retries until valid', async () => {
   assert.match(llm.calls[0].messages.at(-1).content, /다크 판타지/);
 });
 
+test('normalizeScenario keeps job and defaults its name', () => {
+  assert.equal(normalizeScenario(makeRaw()).job.specialty, '검술');
+  const raw = makeRaw();
+  delete raw.job;
+  assert.deepEqual(normalizeScenario(raw).job, { name: '방랑자', description: '', specialty: '' });
+});
+
+test('validateScenario requires minimum counts', () => {
+  const s = makeScenario();
+  s.items = s.items.filter((i) => i.id !== 'potion');
+  s.npcs = [];
+  const errors = validateScenario(s);
+  assert.ok(errors.includes('아이템이 너무 적음'));
+  assert.ok(errors.includes('NPC가 너무 적음'));
+});
+
+test('generateScenario passes the requested job', async () => {
+  const llm = fakeLlm([makeRaw()]);
+  await generateScenario(llm, '다크 판타지', '퇴마사');
+  assert.match(llm.calls[0].messages.at(-1).content, /직업: 퇴마사/);
+});
+
 test('generateScenario gives up after 3 attempts', async () => {
   const bad = () => ({ ...makeRaw(), goal_item_id: 'nope' });
   const llm = fakeLlm([bad(), bad(), bad(), makeRaw()]);

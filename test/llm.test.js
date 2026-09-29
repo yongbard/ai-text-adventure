@@ -47,12 +47,13 @@ test('json sends schema and options, parses content', async () => {
 });
 
 test('stream yields content chunks across split bytes', async () => {
-  const { server, url } = await fakeOllama();
+  const { server, requests, url } = await fakeOllama();
   try {
     const llm = createOllamaClient({ baseUrl: url });
     const chunks = [];
     for await (const c of llm.stream([{ role: 'user', content: 'x' }])) chunks.push(c);
     assert.deepEqual(chunks, ['안녕', '하세요']);
+    assert.equal(requests[0].options.temperature, 0.6);
   } finally {
     server.close();
   }

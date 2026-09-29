@@ -45,6 +45,11 @@ export function normalizeScenario(raw) {
     premise: str(raw.premise),
     truth: str(raw.truth),
     goal: str(raw.goal),
+    job: {
+      name: str(raw.job?.name) || '방랑자',
+      description: str(raw.job?.description),
+      specialty: str(raw.job?.specialty),
+    },
     start_location_id: str(raw.start_location_id),
     goal_item_id: str(raw.goal_item_id),
     goal_location_id: str(raw.goal_location_id),
@@ -112,6 +117,9 @@ export function validateScenario(s) {
     if (list.some((x) => !x.id || !x.name)) errors.push(`${name}: id 또는 name 누락`);
   }
   if (s.locations.length < 5) errors.push('장소가 너무 적음');
+  if (s.items.length < 5) errors.push('아이템이 너무 적음');
+  if (s.enemies.length < 2) errors.push('적이 너무 적음');
+  if (s.npcs.length < 1) errors.push('NPC가 너무 적음');
   if (!locIds.has(s.start_location_id)) errors.push('start_location_id 잘못됨');
   if (!locIds.has(s.goal_location_id)) errors.push('goal_location_id 잘못됨');
   if (!itemIds.has(s.goal_item_id)) errors.push('goal_item_id 잘못됨');
@@ -139,11 +147,11 @@ export function validateScenario(s) {
   return errors;
 }
 
-export async function generateScenario(llm, genre, maxAttempts = 3) {
+export async function generateScenario(llm, genre, job = '', maxAttempts = 3) {
   let lastErrors = [];
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      const s = normalizeScenario(await llm.json(scenarioMessages(genre), SCENARIO_SCHEMA, { temperature: 0.9 }));
+      const s = normalizeScenario(await llm.json(scenarioMessages(genre, job), SCENARIO_SCHEMA, { temperature: 0.9 }));
       lastErrors = validateScenario(s);
       if (!lastErrors.length) return s;
     } catch (err) {

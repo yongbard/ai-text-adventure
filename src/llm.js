@@ -28,7 +28,7 @@ export function createOllamaClient({ baseUrl = 'http://localhost:11434', model =
       return JSON.parse(data.message.content);
     },
 
-    async *stream(messages, { temperature = 0.8 } = {}) {
+    async *stream(messages, { temperature = 0.6 } = {}) {
       const res = await chat({ messages, stream: true, options: { num_ctx: 16384, temperature } });
       const decoder = new TextDecoder();
       let buf = '';
