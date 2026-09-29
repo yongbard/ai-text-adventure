@@ -4,6 +4,7 @@ export function makeScenario() {
     premise: '당신은 버려진 성당에 들어섰다.',
     truth: '성배는 사실 리치의 심장이다.',
     goal: '성배를 들고 제단의 리치를 쓰러뜨려라.',
+    job: { name: '떠돌이 기사', description: '주인을 잃은 기사.', specialty: '검술' },
     start_location_id: 'hall',
     goal_item_id: 'grail',
     goal_location_id: 'altar',

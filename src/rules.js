@@ -1,5 +1,10 @@
+import { traitMods, describeEffects } from './traits.js';
+
 export const MAX_TURNS = 60;
-export const RISK_DAMAGE = { low: 1, medium: 2, high: 3, deadly: 4 };
+export const BASE_MAX_HP = 15;
+export const STAT_MIN = 1;
+export const STAT_MAX = 9;
+export const RISK_DAMAGE = { low: 0, medium: 1, high: 2, deadly: 3 };
 export const GRADE_LABEL = {
   critical: '대성공', success: '성공', failure: '실패', fumble: '대실패', impossible: '불가능',
 };
@@ -39,14 +44,15 @@ export function rollD100(rng) {
   return Math.floor(rng() * 100) + 1;
 }
 
-export function computeChance(base, statValue, itemBonus) {
-  return clamp(Math.round(clamp(base, 1, 99) + (statValue - 3) * 5 + clamp(itemBonus, 0, 20)), 1, 99);
+export function computeChance(base, statValue, itemBonus, traitBonus = 0) {
+  return clamp(Math.round(clamp(base, 1, 99) + (statValue - 3) * 5 + clamp(itemBonus, 0, 20) + traitBonus), 1, 99);
 }
 
-export function gradeRoll(roll, chance) {
-  if (roll <= Math.max(1, Math.floor(chance / 5))) return 'critical';
+export function gradeRoll(roll, chance, crit = 0, fumble = 0) {
+  const critMax = Math.min(chance, Math.max(0, Math.max(1, Math.floor(chance / 5)) + crit));
+  if (roll <= critMax) return 'critical';
   if (roll <= chance) return 'success';
-  if (roll >= 96) return 'fumble';
+  if (roll >= 96 - fumble) return 'fumble';
   return 'failure';
 }
 
@@ -64,6 +70,9 @@ export function normalizeIntent(raw = {}) {
     stat: STATS.includes(raw.stat) ? raw.stat : 'dex',
     item_bonus: Math.round(clamp(num(raw.item_bonus, 0), 0, 20)),
     risk: RISKS.includes(raw.risk) ? raw.risk : 'medium',
+    effect_hp: Math.round(clamp(num(raw.effect_hp, 0), -5, 5)),
+    effect_stat: STATS.includes(raw.effect_stat) ? raw.effect_stat : null,
+    effect_stat_delta: STATS.includes(raw.effect_stat) ? Math.round(clamp(num(raw.effect_stat_delta, 0), -2, 2)) : 0,
   };
 }
 
@@ -79,14 +88,24 @@ export function matchEntity(list, query) {
   );
 }
 
-export function createInitialState(scenario) {
-  const { stats, ...rest } = structuredClone(scenario);
+export function createInitialState(scenario, traits = []) {
+  const { stats, job, ...rest } = structuredClone(scenario);
+  const finalStats = { ...stats };
+  let maxHp = BASE_MAX_HP;
+  for (const t of traits) {
+    for (const k of STATS) finalStats[k] += t.effects[k] ?? 0;
+    maxHp += t.effects.max_hp ?? 0;
+  }
+  for (const k of STATS) finalStats[k] = clamp(finalStats[k], STAT_MIN, STAT_MAX);
+  maxHp = Math.max(5, maxHp);
   return {
     ...rest,
     player: {
-      stats,
-      hp: 10,
-      max_hp: 10,
+      job: job ?? null,
+      traits: structuredClone(traits),
+      stats: finalStats,
+      hp: maxHp,
+      max_hp: maxHp,
       inventory: rest.items.filter((i) => i.location_id === null).map((i) => i.id),
       location_id: rest.start_location_id,
     },
@@ -183,8 +202,17 @@ function changeHp(state, delta, result) {
   if (actual) result.changes.push(`체력 ${actual > 0 ? '+' : ''}${actual}`);
 }
 
-function applySuccess(state, action, targetId, result) {
-  if (!targetId) return;
+function changeStat(state, stat, delta, result) {
+  const stats = state.player.stats;
+  const next = clamp(stats[stat] + delta, STAT_MIN, STAT_MAX);
+  const actual = next - stats[stat];
+  stats[stat] = next;
+  if (actual) result.changes.push(`${STAT_LABEL[stat]} ${actual > 0 ? '+' : ''}${actual}`);
+}
+
+// 회복 아이템을 사용했으면 true (그 턴의 AI effect_hp는 무시)
+function applySuccess(state, action, targetId, result, mods) {
+  if (!targetId) return false;
   if (action === 'move') {
     state.player.location_id = targetId;
     if (!state.visited.includes(targetId)) state.visited.push(targetId);
@@ -196,7 +224,8 @@ function applySuccess(state, action, targetId, result) {
     result.changes.push(`${item.name} 획득`);
   } else if (action === 'attack') {
     const enemy = state.enemies.find((e) => e.id === targetId);
-    enemy.hp = Math.max(0, enemy.hp - (result.grade === 'critical' ? 4 : 2));
+    const damage = Math.max(1, (result.grade === 'critical' ? 4 : 2) + mods.attack_damage);
+    enemy.hp = Math.max(0, enemy.hp - damage);
     result.changes.push(enemy.hp === 0 ? `${enemy.name} 처치` : `${enemy.name}에게 타격`);
   } else if (action === 'use') {
     const item = state.items.find((i) => i.id === targetId);
@@ -204,9 +233,11 @@ function applySuccess(state, action, targetId, result) {
       state.player.inventory = state.player.inventory.filter((id) => id !== item.id);
       item.consumed = true;
       result.changes.push(`${item.name} 사용`);
-      changeHp(state, item.heal, result);
+      changeHp(state, Math.max(0, item.heal + mods.heal), result);
+      return true;
     }
   }
+  return false;
 }
 
 export function checkEnding(state) {
@@ -223,10 +254,11 @@ export function checkEnding(state) {
 
 export function resolveTurn(prev, intent, rng, input = '') {
   const state = structuredClone(prev);
+  const mods = traitMods(state.player.traits);
   const feas = checkFeasibility(state, intent);
   const result = {
     action: intent.action, reason: intent.reason, stat: intent.stat,
-    kind: 'roll', grade: null, base: intent.base_chance, statMod: 0, itemBonus: 0,
+    kind: 'roll', grade: null, base: intent.base_chance, statMod: 0, itemBonus: 0, traitBonus: 0,
     chance: null, roll: null, hpDelta: 0, changes: [],
   };
 
@@ -241,20 +273,26 @@ export function resolveTurn(prev, intent, rng, input = '') {
     const statValue = state.player.stats[intent.stat];
     result.statMod = (statValue - 3) * 5;
     result.itemBonus = feas.itemIds.length ? intent.item_bonus : 0;
-    result.chance = computeChance(intent.base_chance, statValue, result.itemBonus);
+    result.traitBonus = (mods.action[intent.action] ?? 0) + (enemiesHere(state).length ? mods.vs_enemy : 0);
+    result.chance = computeChance(intent.base_chance, statValue, result.itemBonus, result.traitBonus);
     result.roll = rollD100(rng);
-    result.grade = gradeRoll(result.roll, result.chance);
+    result.grade = gradeRoll(result.roll, result.chance, mods.crit, mods.fumble);
     state.dice.rolls += 1;
     if (result.grade === 'critical') state.dice.crits += 1;
     if (result.grade === 'fumble') state.dice.fumbles += 1;
   }
 
   if (result.grade === 'success' || result.grade === 'critical') {
-    applySuccess(state, intent.action, feas.targetId, result);
+    const usedHeal = applySuccess(state, intent.action, feas.targetId, result, mods);
+    if (intent.effect_hp && !usedHeal) {
+      changeHp(state, intent.effect_hp > 0 ? Math.max(0, intent.effect_hp + mods.heal) : intent.effect_hp, result);
+    }
+    if (intent.effect_stat && intent.effect_stat_delta) changeStat(state, intent.effect_stat, intent.effect_stat_delta, result);
     if (result.grade === 'critical') changeHp(state, 1, result);
   } else if (result.grade === 'failure' || result.grade === 'fumble') {
-    const damage = RISK_DAMAGE[intent.risk] * (result.grade === 'fumble' ? 2 : 1) + (enemiesHere(state).length ? 1 : 0);
-    changeHp(state, -damage, result);
+    const damage = RISK_DAMAGE[intent.risk] * (result.grade === 'fumble' ? 2 : 1)
+      + (enemiesHere(state).length ? 1 : 0) + mods.damage_taken;
+    changeHp(state, -Math.max(0, damage), result);
   }
 
   state.turn += 1;
@@ -275,6 +313,10 @@ export function publicState(state) {
     hp: state.player.hp,
     maxHp: state.player.max_hp,
     stats: state.player.stats,
+    job: state.player.job ?? null,
+    traits: (state.player.traits ?? []).map((t) => ({
+      name: t.name, description: t.description, good: t.good, summary: describeEffects(t.effects),
+    })),
     location: {
       name: loc.name,
       description: loc.description,

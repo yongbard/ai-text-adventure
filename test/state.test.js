@@ -21,7 +21,10 @@ test('initial state: start inventory, location, visited', () => {
   assert.deepEqual(s.player.inventory, ['dagger', 'torch']);
   assert.equal(s.player.location_id, 'hall');
   assert.deepEqual(s.visited, ['hall']);
-  assert.equal(s.player.hp, 10);
+  assert.equal(s.player.hp, 15);
+  assert.equal(s.player.max_hp, 15);
+  assert.equal(s.player.job.name, '떠돌이 기사');
+  assert.deepEqual(s.player.traits, []);
   assert.equal(s.turn, 0);
   assert.deepEqual(s.player.stats, { str: 4, dex: 5, int: 3 });
 });
@@ -65,7 +68,7 @@ test('resolveTurn: impossible costs a turn but no hp', () => {
   assert.equal(result.grade, 'impossible');
   assert.equal(result.roll, null);
   assert.equal(state.turn, 1);
-  assert.equal(state.player.hp, 10);
+  assert.equal(state.player.hp, 15);
   assert.equal(s0.turn, 0, 'original state untouched');
   assert.match(state.log[0], /^1턴: 제단으로 간다 → 불가능/);
 });
@@ -97,11 +100,11 @@ test('resolveTurn: item bonus ignored when no items used', () => {
 
 test('resolveTurn: failure damage by risk, +1 with enemy, x2 on fumble', () => {
   const hall = resolveTurn(start(), intent({ action: 'other', risk: 'high', base_chance: 30 }), fixedRng(90));
-  assert.equal(hall.state.player.hp, 7);
+  assert.equal(hall.state.player.hp, 13);
   const cor = resolveTurn(at(start(), 'corridor'), intent({ action: 'other', risk: 'high', base_chance: 30 }), fixedRng(90));
-  assert.equal(cor.state.player.hp, 6);
+  assert.equal(cor.state.player.hp, 12);
   const fum = resolveTurn(start(), intent({ action: 'other', risk: 'medium', base_chance: 30 }), fixedRng(97));
-  assert.deepEqual([fum.result.grade, fum.state.player.hp, fum.state.dice.fumbles], ['fumble', 6, 1]);
+  assert.deepEqual([fum.result.grade, fum.state.player.hp, fum.state.dice.fumbles], ['fumble', 13, 1]);
 });
 
 test('resolveTurn: critical deals 4 damage and heals 1', () => {
@@ -145,6 +148,76 @@ test('resolveTurn sets ending when hp hits 0', () => {
   const { state } = resolveTurn(s, intent({ action: 'other', risk: 'deadly', base_chance: 10 }), fixedRng(90));
   assert.equal(state.player.hp, 0);
   assert.equal(state.ending, 'death');
+});
+
+const trait = (effects, good = true) => ({ id: 't', name: '테스트', good, group: 't', description: '', effects });
+
+test('createInitialState applies trait stats and max hp with clamps', () => {
+  const s = createInitialState(makeScenario(), [trait({ str: 2, max_hp: 3 }), trait({ dex: 5, int: -5, max_hp: -30 }, false)]);
+  assert.deepEqual(s.player.stats, { str: 6, dex: 9, int: 1 });
+  assert.equal(s.player.max_hp, 5);
+  assert.equal(s.player.hp, 5);
+  assert.equal(s.player.traits.length, 2);
+});
+
+test('trait action and vs_enemy bonuses feed the chance', () => {
+  const s = at(createInitialState(makeScenario(), [trait({ action: { attack: 15 }, vs_enemy: 10 })]), 'corridor');
+  const { result } = resolveTurn(s, intent({ action: 'attack', target: '쥐', base_chance: 30, stat: 'int' }), fixedRng(99));
+  assert.deepEqual([result.traitBonus, result.chance], [25, 55]);
+  const hall = createInitialState(makeScenario(), [trait({ vs_enemy: 10 })]);
+  assert.equal(resolveTurn(hall, intent({ action: 'examine', base_chance: 30, stat: 'int' }), fixedRng(99)).result.traitBonus, 0);
+});
+
+test('trait crit, fumble and damage_taken modifiers', () => {
+  const lucky = createInitialState(makeScenario(), [trait({ crit: 2 })]);
+  assert.equal(resolveTurn(lucky, intent({ action: 'other', base_chance: 30 }), fixedRng(10)).result.grade, 'critical');
+  const jinx = createInitialState(makeScenario(), [trait({ fumble: 3, damage_taken: 1 }, false)]);
+  const bad = resolveTurn(jinx, intent({ action: 'other', base_chance: 30, risk: 'medium' }), fixedRng(93));
+  assert.equal(bad.result.grade, 'fumble');
+  assert.equal(bad.state.player.hp, 12);
+  const calm = createInitialState(makeScenario(), [trait({ damage_taken: -1 })]);
+  assert.equal(resolveTurn(calm, intent({ action: 'other', base_chance: 30, risk: 'medium' }), fixedRng(90)).state.player.hp, 15);
+});
+
+test('attack_damage and heal modifiers; heal item turn ignores effect_hp', () => {
+  const strong = at(createInitialState(makeScenario(), [trait({ attack_damage: 1 })]), 'altar');
+  const hit = resolveTurn(strong, intent({ action: 'attack', target: '리치', stat: 'str' }), fixedRng(50));
+  assert.equal(hit.state.enemies.find((e) => e.id === 'lich').hp, 3);
+  const healer = at(createInitialState(makeScenario(), [trait({ heal: 1 })]), 'crypt');
+  healer.player.hp = 5;
+  const took = resolveTurn(healer, intent({ action: 'take', target: '물약', trivial: true }), fixedRng(50));
+  const used = resolveTurn(took.state, intent({ action: 'use', target: '치유 물약', trivial: true, effect_hp: 3 }), fixedRng(50));
+  assert.equal(used.state.player.hp, 9);
+});
+
+test('AI effects apply only on success and are clamped', () => {
+  const s = start();
+  s.player.hp = 10;
+  const ate = resolveTurn(s, intent({ action: 'other', trivial: true, effect_hp: 9, effect_stat: 'str', effect_stat_delta: 5 }), fixedRng(50));
+  assert.equal(ate.state.player.hp, 15);
+  assert.equal(ate.state.player.stats.str, 6);
+  assert.ok(ate.result.changes.includes('체력 +5'));
+  assert.ok(ate.result.changes.includes('힘 +2'));
+  const fail = resolveTurn(s, intent({ action: 'other', base_chance: 10, risk: 'low', effect_hp: 3, effect_stat: 'int', effect_stat_delta: 1 }), fixedRng(90));
+  assert.deepEqual([fail.state.player.hp, fail.state.player.stats.int], [10, 3]);
+  const cursed = resolveTurn(s, intent({ action: 'other', trivial: true, effect_stat: 'dex', effect_stat_delta: -2, effect_hp: -3 }), fixedRng(50));
+  assert.deepEqual([cursed.state.player.stats.dex, cursed.state.player.hp], [3, 7]);
+});
+
+test('publicState exposes job and trait summaries', () => {
+  const p = publicState(createInitialState(makeScenario(), [trait({ str: 1, action: { talk: 15 } })]));
+  assert.equal(p.job.name, '떠돌이 기사');
+  assert.deepEqual(p.traits, [{ name: '테스트', description: '', good: true, summary: '힘 +1, 대화 판정 +15%' }]);
+  assert.equal(p.maxHp, 15);
+});
+
+test('v1.0 save without traits/job still works', () => {
+  const s = start();
+  delete s.player.traits;
+  delete s.player.job;
+  const { state } = resolveTurn(s, intent({ action: 'examine', trivial: true }), fixedRng(50));
+  assert.equal(publicState(state).job, null);
+  assert.deepEqual(publicState(state).traits, []);
 });
 
 test('publicState hides secrets until ending', () => {

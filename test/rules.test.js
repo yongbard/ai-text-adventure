@@ -46,8 +46,31 @@ test('normalizeIntent fills defaults and clamps', () => {
   assert.deepEqual(i, {
     action: 'other', target: null, items_used: ['칼'], trivial: false, base_chance: 99,
     reason: '', stat: 'dex', item_bonus: 0, risk: 'medium',
+    effect_hp: 0, effect_stat: null, effect_stat_delta: 0,
   });
   assert.equal(normalizeIntent({}).base_chance, 50);
+});
+
+test('gradeRoll honors crit and fumble modifiers', () => {
+  assert.equal(gradeRoll(10, 40, 2), 'critical');
+  assert.equal(gradeRoll(11, 40, 2), 'success');
+  assert.equal(gradeRoll(3, 3, 5), 'critical');
+  assert.equal(gradeRoll(1, 40, -8), 'success');
+  assert.equal(gradeRoll(93, 40, 0, 3), 'fumble');
+  assert.equal(gradeRoll(97, 40, 0, -3), 'failure');
+  assert.equal(gradeRoll(99, 40, 0, -3), 'fumble');
+});
+
+test('computeChance adds trait bonus', () => {
+  assert.equal(computeChance(30, 3, 0, 15), 45);
+  assert.equal(computeChance(10, 3, 0, -20), 1);
+});
+
+test('normalizeIntent clamps AI effects', () => {
+  const i = normalizeIntent({ effect_hp: 9, effect_stat: 'str', effect_stat_delta: -7 });
+  assert.deepEqual([i.effect_hp, i.effect_stat, i.effect_stat_delta], [5, 'str', -2]);
+  const none = normalizeIntent({ effect_stat: 'none', effect_stat_delta: 2 });
+  assert.deepEqual([none.effect_stat, none.effect_stat_delta], [null, 0]);
 });
 
 test('matchEntity matches id, exact name, then partial name', () => {
