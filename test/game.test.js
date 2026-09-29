@@ -12,15 +12,16 @@ function makeRaw() {
 }
 
 function fakeLlm({ json = [], stream = [] } = {}) {
-  const calls = { json: 0, stream: 0 };
+  const calls = { json: 0, stream: 0, jsonMessages: [] };
   return {
     model: 'fake',
     calls,
     async status() {
       return { ollama: true, model: true };
     },
-    async json() {
+    async json(messages) {
       calls.json += 1;
+      calls.jsonMessages.push(messages);
       const next = json.shift();
       if (next instanceof Error) throw next;
       return next;
@@ -56,6 +57,31 @@ test('newGame generates scenario, saves, returns public state', async () => {
   assert.equal(pub.title, '봉인된 성배');
   assert.equal(pub.truth, null);
   assert.equal(store.data.turn, 0);
+});
+
+test('newGame passes job and draws 2 good + 2 bad traits', async () => {
+  const llm = fakeLlm({ json: [makeRaw()] });
+  const store = memoryStore();
+  const pub = await createGame({ llm, store, rng: fixedRng(50) }).newGame('다크 판타지', '퇴마사');
+  assert.match(llm.calls.jsonMessages[0].at(-1).content, /직업: 퇴마사/);
+  assert.equal(pub.job.name, '떠돌이 기사');
+  assert.deepEqual(pub.traits.map((t) => t.good), [true, true, false, false]);
+  assert.equal(store.data.player.traits.length, 4);
+});
+
+test('narration naming unknown entities is regenerated and replaced', async () => {
+  const llm = fakeLlm({
+    json: [makeRaw(), { action: 'examine', trivial: true }],
+    stream: [['창고의 은빛 열쇠가 떠오른다.'], ['당신은 주위를 둘러본다.']],
+  });
+  const store = memoryStore();
+  const game = createGame({ llm, store, rng: fixedRng(50) });
+  await game.newGame('SF');
+  const c = collect();
+  await game.turn('둘러본다', c.emit);
+  assert.deepEqual(c.types(), ['roll', 'text', 'replace', 'state']);
+  assert.deepEqual(c.events[2], { type: 'replace', target: 'text', text: '당신은 주위를 둘러본다.' });
+  assert.equal(store.data.history[0].narration, '당신은 주위를 둘러본다.');
 });
 
 test('turn emits roll, text, state in order and saves', async () => {

@@ -1,6 +1,7 @@
 import { createInitialState, normalizeIntent, resolveTurn, publicState, GRADE_LABEL } from './rules.js';
 import { generateScenario } from './scenario.js';
-import { interpretMessages, narrateMessages, epilogueMessages, INTERPRET_SCHEMA } from './prompts.js';
+import { drawTraits } from './traits.js';
+import { interpretMessages, narrateMessages, epilogueMessages, unknownNames, INTERPRET_SCHEMA } from './prompts.js';
 
 export function createGame({ llm, store, rng = Math.random }) {
   let current = null;
@@ -27,7 +28,7 @@ export function createGame({ llm, store, rng = Math.random }) {
     return null;
   }
 
-  async function streamText(messages, emit, type, fallback) {
+  async function streamText(state, messages, emit, type, fallback) {
     let text = '';
     try {
       for await (const chunk of llm.stream(messages)) {
@@ -36,6 +37,18 @@ export function createGame({ llm, store, rng = Math.random }) {
       }
     } catch {
       // 아래에서 대체 문장 사용
+    }
+    if (text.trim() && unknownNames(text, state, messages).length) {
+      try {
+        let retry = '';
+        for await (const chunk of llm.stream(messages)) retry += chunk;
+        if (retry.trim()) {
+          text = retry;
+          emit({ type: 'replace', target: type, text });
+        }
+      } catch {
+        // 첫 묘사 유지
+      }
     }
     if (!text.trim()) {
       text = fallback;
@@ -49,9 +62,9 @@ export function createGame({ llm, store, rng = Math.random }) {
       return { ...(await llm.status()), model_name: llm.model, hasSave: store.exists() };
     },
 
-    newGame(genre) {
+    newGame(genre, job = '') {
       return exclusive(async () => {
-        current = createInitialState(await generateScenario(llm, genre));
+        current = createInitialState(await generateScenario(llm, genre, job), drawTraits(rng));
         store.save(current);
         return publicState(current);
       });
@@ -79,11 +92,11 @@ export function createGame({ llm, store, rng = Math.random }) {
         emit({ type: 'roll', result });
 
         const fallback = `${GRADE_LABEL[result.grade]} — ${result.changes.join(', ') || result.reason}`;
-        const narration = await streamText(narrateMessages(state, text, intent, result), emit, 'text', fallback);
+        const narration = await streamText(state, narrateMessages(state, text, intent, result), emit, 'text', fallback);
         state.history.push({ input: text, result, narration });
 
         if (state.ending) {
-          state.epilogue = await streamText(epilogueMessages(state), emit, 'epilogue', '이야기는 여기서 끝이 났다.');
+          state.epilogue = await streamText(state, epilogueMessages(state), emit, 'epilogue', '이야기는 여기서 끝이 났다.');
         }
 
         current = state;

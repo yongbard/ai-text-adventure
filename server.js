@@ -49,8 +49,8 @@ const server = http.createServer(async (req, res) => {
       return state ? sendJson(res, 200, state) : sendJson(res, 404, { error: '저장된 게임이 없습니다' });
     }
     if (req.method === 'POST' && req.url === '/api/new') {
-      const { genre } = await readJson(req);
-      return sendJson(res, 200, await game.newGame(String(genre || '다크 판타지').slice(0, 100)));
+      const { genre, job } = await readJson(req);
+      return sendJson(res, 200, await game.newGame(String(genre || '다크 판타지').slice(0, 100), String(job || '').slice(0, 50)));
     }
     if (req.method === 'POST' && req.url === '/api/turn') {
       const { input } = await readJson(req);
