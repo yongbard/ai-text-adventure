@@ -11,6 +11,7 @@
     <h1>🎲 AI 텍스트 어드벤처</h1>
     <p class="sub">자유롭게 행동하세요. 개연성이 확률이 되고, 주사위가 운명을 정합니다.</p>
     <div id="status-msg" class="notice" hidden></div>
+    <input id="job-input" class="job-input" placeholder="직업 (선택) — 예: 해커, 퇴마사, 치킨집 사장. 비우면 AI가 정해요" maxlength="50">
     <div class="genres">
       <button class="genre" data-genre="다크 판타지 — 버려진 성당과 저주받은 유물">🕯 다크 판타지</button>
       <button class="genre" data-genre="좀비 아포칼립스 — 현대 한국 도시에서의 생존">🧟 좀비 생존</button>
@@ -42,6 +43,12 @@
         <div class="bar"><div id="hp-bar"></div></div>
       </div>
       <div class="block" id="stats"></div>
+      <div class="block">
+        <div class="label">🧑 직업</div>
+        <div id="job"></div>
+        <div id="specialty" class="small"></div>
+      </div>
+      <div class="block"><div class="label">🎭 성격</div><ul id="traits"></ul></div>
       <div class="block"><div class="label">🎯 목표</div><div id="goal" class="small"></div></div>
       <div class="block">
         <div class="label">📍 현재 위치</div>

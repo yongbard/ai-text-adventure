@@ -84,3 +84,10 @@ input:focus { outline: none; border-color: var(--accent); }
 #inventory li { padding: 3px 0; }
 #inventory li.new { color: var(--crit); }
 #inventory li.new::after { content: ' ✨'; }
+.job-input { width: 100%; margin-top: 24px; }
+#job { font-weight: 600; }
+#traits { list-style: none; margin: 0; padding: 0; }
+#traits li { padding: 3px 0; }
+#traits li.good { color: var(--ok); }
+#traits li.bad { color: var(--fail); }
+.trait-summary { display: block; font-size: .8rem; color: var(--muted); }

@@ -61,7 +61,8 @@ function rollText(r) {
   const parts = [`개연성 ${r.base}%`];
   if (r.statMod) parts.push(`${STAT[r.stat][1]} ${r.statMod > 0 ? '+' : ''}${r.statMod}%`);
   if (r.itemBonus) parts.push(`아이템 +${r.itemBonus}%`);
-  return `🎲 ${parts.join(' ')} = ${r.chance}% → 주사위 ${r.roll} → ${icon} ${label}`;
+  if (r.traitBonus) parts.push(`성격 ${r.traitBonus > 0 ? '+' : ''}${r.traitBonus}%`);
+  return `🎲 ${parts.join(' ')} = ${r.chance}% → 주사위 ${r.roll} (${r.chance} 이하 성공) → ${icon} ${label}`;
 }
 
 function showRoll(r) {
@@ -110,6 +111,14 @@ function renderState(s) {
   }
   prevHp = s.hp;
   $('stats').replaceChildren(...Object.entries(s.stats).map(([k, v]) => el('span', '', `${STAT[k][0]} ${STAT[k][1]} ${v}`)));
+  $('job').textContent = s.job?.name ?? '없음';
+  $('specialty').textContent = s.job?.specialty ? `특기: ${s.job.specialty}` : '';
+  $('traits').replaceChildren(...s.traits.map((t) => {
+    const li = el('li', t.good ? 'good' : 'bad', `${t.good ? '＋' : '－'} ${t.name}`);
+    li.title = t.description;
+    li.append(el('span', 'trait-summary', t.summary));
+    return li;
+  }));
   $('goal').textContent = s.goal;
   $('location').textContent = s.location.name;
   $('exits').textContent = `출구: ${s.location.exits.map((x) => x.name + (x.locked ? ' 🔒' : '')).join(' / ') || '없음'}`;
@@ -131,6 +140,11 @@ function enterGame(s) {
   prevInventory = s.inventory.map((i) => i.name);
   prevHp = s.hp;
   addBlock('intro', s.premise);
+  if (s.job) addBlock('intro', `🧑 직업: ${s.job.name}${s.job.description ? ` — ${s.job.description}` : ''}`);
+  if (s.traits.length) {
+    const names = (good) => s.traits.filter((t) => t.good === good).map((t) => t.name).join(', ');
+    addBlock('intro', `🎭 성격: ${names(true)} / ${names(false)}`);
+  }
   if (!s.history.length) addBlock('narration', s.location.description);
   for (const h of s.history) {
     addBlock('player', `▶ ${h.input}`);
@@ -160,6 +174,10 @@ async function playTurn(input) {
     } else if (ev.type === 'epilogue') {
       epilogueEl ??= addBlock('epilogue', '');
       epilogueEl.textContent += ev.text;
+      scrollStory();
+    } else if (ev.type === 'replace') {
+      const target = ev.target === 'epilogue' ? (epilogueEl ??= addBlock('epilogue', '')) : (textEl ??= addBlock('narration', ''));
+      target.textContent = ev.text;
       scrollStory();
     } else if (ev.type === 'state') {
       renderState(ev.state);
@@ -205,7 +223,7 @@ async function startGame(genre) {
   $('loading').textContent = '🌍 AI가 세계를 만드는 중... (첫 실행은 모델을 깨우느라 1~2분 걸릴 수 있어요)';
   $('loading').hidden = false;
   try {
-    enterGame(await api('/api/new', { genre }));
+    enterGame(await api('/api/new', { genre, job: $('job-input').value.trim() }));
   } catch (err) {
     notice(`시작 실패: ${err.message}`);
   } finally {
