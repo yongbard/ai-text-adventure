@@ -1,16 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createInitialState, normalizeIntent, resolveTurn } from '../src/rules.js';
-import { interpretMessages, narrateMessages, epilogueMessages, scenarioMessages } from '../src/prompts.js';
+import { interpretMessages, narrateMessages, epilogueMessages, scenarioMessages, unknownNames } from '../src/prompts.js';
 import { makeScenario, fixedRng } from './fixtures.js';
 
 const start = () => createInitialState(makeScenario());
 const text = (msgs) => msgs.map((m) => m.content).join('\n');
 
-test('scenarioMessages includes genre', () => {
-  const msgs = scenarioMessages('좀비 생존');
+test('scenarioMessages includes genre and job', () => {
+  const msgs = scenarioMessages('좀비 생존', '해커');
   assert.equal(msgs[0].role, 'system');
   assert.match(msgs.at(-1).content, /좀비 생존/);
+  assert.match(msgs.at(-1).content, /직업: 해커/);
+  assert.match(scenarioMessages('SF').at(-1).content, /장르에 어울리게 정하세요/);
 });
 
 test('interpretMessages lists scene facts and hides secrets', () => {
@@ -20,6 +22,8 @@ test('interpretMessages lists scene facts and hides secrets', () => {
   assert.match(all, /소지품: 녹슨 단검, 횃불/);
   assert.match(all, /이곳의 인물: 늙은 수도사/);
   assert.match(all, /회랑으로 간다/);
+  assert.match(all, /직업: 떠돌이 기사 — 주인을 잃은 기사. \(특기: 검술\)/);
+  assert.equal(all.includes('능력치: 힘'), false);
   assert.equal(all.includes('리치의 심장'), false);
   assert.equal(all.includes('은빛 열쇠는 창고에'), false);
 });
@@ -41,7 +45,30 @@ test('narrateMessages states failure and damage explicitly', () => {
   const { state, result } = resolveTurn(start(), jump, fixedRng(90), '벽을 뛰어넘는다');
   const user = narrateMessages(state, '벽을 뛰어넘는다', jump, result).at(-1).content;
   assert.match(user, /^\[판정 결과\] 실패/);
-  assert.match(user, /체력 -3/);
+  assert.match(user, /체력 -2/);
+});
+
+test('narrateMessages adds traits and fail-forward only on failure', () => {
+  const talker = { id: 'g7', name: '달변가', good: true, group: 'speech', description: '', effects: { action: { talk: 15 } } };
+  const s = createInitialState(makeScenario(), [talker]);
+  const jump = normalizeIntent({ action: 'other', base_chance: 20, risk: 'high' });
+  const failed = resolveTurn(s, jump, fixedRng(90), '벽을 넘는다');
+  const u1 = narrateMessages(failed.state, '벽을 넘는다', jump, failed.result).at(-1).content;
+  assert.match(u1, /성격: 달변가/);
+  assert.match(u1, /\[연출\]/);
+  const look = normalizeIntent({ action: 'examine', trivial: true });
+  const ok = resolveTurn(s, look, fixedRng(50), '둘러본다');
+  assert.equal(narrateMessages(ok.state, '둘러본다', look, ok.result).at(-1).content.includes('[연출]'), false);
+});
+
+test('unknownNames flags entities not given to the model', () => {
+  const look = normalizeIntent({ action: 'examine', trivial: true });
+  const { state, result } = resolveTurn(start(), look, fixedRng(50), '둘러본다');
+  const msgs = narrateMessages(state, '둘러본다', look, result);
+  assert.deepEqual(unknownNames('당신은 은빛 열쇠를 떠올린다.', state, msgs), ['은빛 열쇠']);
+  assert.deepEqual(unknownNames('녹슨 단검을 쥐고 리치를 생각한다.', state, msgs), []);
+  const epi = epilogueMessages({ ...state, ending: 'death' });
+  assert.deepEqual(unknownNames('봉인된 성배가 빛난다.', state, epi), []);
 });
 
 test('narrateMessages forbids recaps and asks to reveal enemies', () => {
