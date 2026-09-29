@@ -1,7 +1,10 @@
 import { createInitialState, normalizeIntent, resolveTurn, publicState, GRADE_LABEL } from './rules.js';
 import { generateScenario } from './scenario.js';
 import { drawTraits } from './traits.js';
-import { interpretMessages, narrateMessages, epilogueMessages, unknownNames, INTERPRET_SCHEMA } from './prompts.js';
+import {
+  interpretMessages, narrateMessages, epilogueMessages, unknownNames, INTERPRET_SCHEMA,
+  narrationFacts, epilogueFacts, checkMessages, CHECK_SCHEMA,
+} from './prompts.js';
 
 export function createGame({ llm, store, rng = Math.random }) {
   let current = null;
@@ -28,7 +31,20 @@ export function createGame({ llm, store, rng = Math.random }) {
     return null;
   }
 
-  async function streamText(state, messages, emit, type, fallback) {
+  // 묘사의 문제를 한 문장으로 돌려준다. 문제가 없거나 검수에 실패하면 null
+  async function review(state, messages, text, facts) {
+    const unknown = unknownNames(text, state, messages);
+    if (unknown.length) return `알려주지 않은 이름이 등장함: ${unknown.join(', ')}`;
+    try {
+      const verdict = await llm.json(checkMessages(facts, text), CHECK_SCHEMA, { temperature: 0.1 });
+      if (verdict?.consistent === false) return String(verdict.problem || '사실과 맞지 않는 내용이 있음');
+    } catch {
+      // 검수 실패는 통과로 간주
+    }
+    return null;
+  }
+
+  async function streamText(state, messages, emit, type, fallback, facts) {
     let text = '';
     try {
       for await (const chunk of llm.stream(messages)) {
@@ -38,21 +54,27 @@ export function createGame({ llm, store, rng = Math.random }) {
     } catch {
       // 아래에서 대체 문장 사용
     }
-    if (text.trim() && unknownNames(text, state, messages).length) {
+    if (!text.trim()) {
+      emit({ type, text: fallback });
+      return fallback;
+    }
+    const problem = await review(state, messages, text, facts);
+    if (problem) {
+      const retryMessages = [
+        ...messages,
+        { role: 'assistant', content: text },
+        { role: 'user', content: `위 묘사에 문제가 있습니다: ${problem}\n판정 결과와 사실에 맞게 처음부터 다시 쓰세요. 묘사만 출력하세요.` },
+      ];
       try {
         let retry = '';
-        for await (const chunk of llm.stream(messages)) retry += chunk;
+        for await (const chunk of llm.stream(retryMessages)) retry += chunk;
         if (retry.trim()) {
           text = retry;
-          emit({ type: 'replace', target: type, text });
+          emit({ type: 'replace', target: type, text, reason: problem });
         }
       } catch {
         // 첫 묘사 유지
       }
-    }
-    if (!text.trim()) {
-      text = fallback;
-      emit({ type, text });
     }
     return text;
   }
@@ -92,11 +114,15 @@ export function createGame({ llm, store, rng = Math.random }) {
         emit({ type: 'roll', result });
 
         const fallback = `${GRADE_LABEL[result.grade]} — ${result.changes.join(', ') || result.reason}`;
-        const narration = await streamText(state, narrateMessages(state, text, intent, result), emit, 'text', fallback);
+        const narration = await streamText(
+          state, narrateMessages(state, text, intent, result), emit, 'text', fallback, narrationFacts(state, text, result),
+        );
         state.history.push({ input: text, result, narration });
 
         if (state.ending) {
-          state.epilogue = await streamText(state, epilogueMessages(state), emit, 'epilogue', '이야기는 여기서 끝이 났다.');
+          state.epilogue = await streamText(
+            state, epilogueMessages(state), emit, 'epilogue', '이야기는 여기서 끝이 났다.', epilogueFacts(state),
+          );
         }
 
         current = state;

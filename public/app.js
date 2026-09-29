@@ -178,6 +178,7 @@ async function playTurn(input) {
     } else if (ev.type === 'replace') {
       const target = ev.target === 'epilogue' ? (epilogueEl ??= addBlock('epilogue', '')) : (textEl ??= addBlock('narration', ''));
       target.textContent = ev.text;
+      if (ev.reason) addBlock('revised', `✎ 검수: ${ev.reason} — 다시 썼습니다`);
       scrollStory();
     } else if (ev.type === 'state') {
       renderState(ev.state);

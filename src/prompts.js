@@ -161,15 +161,62 @@ export function unknownNames(text, state, messages) {
   return [...new Set(names.filter((n) => text.includes(n) && !context.includes(n)))];
 }
 
-export function epilogueMessages(state) {
-  const last = state.history.at(-1)?.narration ?? '';
+function finalFacts(state) {
   const goalItem = state.items.find((i) => i.id === state.goal_item_id);
   const boss = state.enemies.find((e) => e.id === state.boss_enemy_id);
-  const facts = [
+  return [
     `마지막 장소: ${currentLocation(state).name}`,
     `목표 아이템(${goalItem?.name}): ${state.player.inventory.includes(state.goal_item_id) ? '가지고 있음' : '얻지 못함'}`,
     `보스(${boss?.name}): ${boss && boss.hp <= 0 ? '쓰러뜨림' : '살아 있음'}`,
   ].join('\n');
+}
+
+export const CHECK_SCHEMA = obj({ consistent: { type: 'boolean' }, problem: S });
+
+const CHECK_SYSTEM = `당신은 텍스트 어드벤처의 검수자입니다. [확정 사실]과 [검수할 묘사]를 비교해, 묘사가 사실과 모순되는지만 판단해 JSON으로 답합니다. 문체나 분위기는 평가하지 않습니다.
+
+모순의 예:
+- 판정이 실패인데 성공처럼, 또는 성공인데 실패처럼 묘사함
+- 일어나지 않은 사건을 일어난 것처럼 씀 (싸운 적 없는 적과 싸웠다, 얻지 않은 물건을 얻었다 등)
+- 가지지 않은 소지품을 가진 것처럼 씀
+- 현재 장소가 아닌 곳에 있는 것처럼 씀
+- 쓰러뜨린 적이 다시 움직임, 직전 묘사와 정면으로 어긋남
+
+모순이 아닌 것: 사실 목록에 없는 사소한 분위기 묘사(바람, 냄새, 소리, 빛, 감정).
+
+consistent: 모순이 없으면 true. problem: 모순이 있으면 무엇이 틀렸는지 한 문장, 없으면 "".`;
+
+export function narrationFacts(state, input, result) {
+  const defeated = state.enemies.filter((e) => e.hp <= 0).map((e) => e.name);
+  const recent = state.history.slice(-2).map((h) => h.narration).join('\n') || '없음';
+  return [
+    `[판정 결과] ${describeResult(result)}`,
+    `[플레이어 입력] ${input}`,
+    `[지금 상황]\n${sceneFacts(state)}`,
+    `[쓰러뜨린 적] ${list(defeated)}`,
+    `[지난 사건]\n${state.log.join('\n') || '없음'}`,
+    `[직전 묘사]\n${recent}`,
+  ].join('\n\n');
+}
+
+export function epilogueFacts(state) {
+  return [
+    `엔딩: ${ENDING_LABEL[state.ending]}`,
+    `[최종 사실]\n${finalFacts(state)}`,
+    `[지난 사건]\n${state.log.join('\n') || '없음'}`,
+  ].join('\n\n');
+}
+
+export function checkMessages(facts, text) {
+  return [
+    { role: 'system', content: CHECK_SYSTEM },
+    { role: 'user', content: `[확정 사실]\n${facts}\n\n[검수할 묘사]\n${text}` },
+  ];
+}
+
+export function epilogueMessages(state) {
+  const last = state.history.at(-1)?.narration ?? '';
+  const facts = finalFacts(state);
   return [
     {
       role: 'system',

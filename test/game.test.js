@@ -12,7 +12,7 @@ function makeRaw() {
 }
 
 function fakeLlm({ json = [], stream = [] } = {}) {
-  const calls = { json: 0, stream: 0, jsonMessages: [] };
+  const calls = { json: 0, stream: 0, jsonMessages: [], streamMessages: [] };
   return {
     model: 'fake',
     calls,
@@ -26,8 +26,9 @@ function fakeLlm({ json = [], stream = [] } = {}) {
       if (next instanceof Error) throw next;
       return next;
     },
-    async *stream() {
+    async *stream(messages) {
       calls.stream += 1;
+      calls.streamMessages.push(messages);
       const next = stream.shift();
       if (next instanceof Error) throw next;
       for (const c of next ?? []) yield c;
@@ -80,8 +81,46 @@ test('narration naming unknown entities is regenerated and replaced', async () =
   const c = collect();
   await game.turn('둘러본다', c.emit);
   assert.deepEqual(c.types(), ['roll', 'text', 'replace', 'state']);
-  assert.deepEqual(c.events[2], { type: 'replace', target: 'text', text: '당신은 주위를 둘러본다.' });
+  assert.deepEqual(c.events[2], {
+    type: 'replace', target: 'text', text: '당신은 주위를 둘러본다.', reason: '알려주지 않은 이름이 등장함: 은빛 열쇠',
+  });
   assert.equal(store.data.history[0].narration, '당신은 주위를 둘러본다.');
+  assert.equal(llm.calls.json, 2, 'name check failure skips the AI checker');
+});
+
+test('checker flags a contradiction and narration is rewritten with feedback', async () => {
+  const llm = fakeLlm({
+    json: [makeRaw(), { action: 'examine', trivial: true }, { consistent: false, problem: '실패를 성공처럼 묘사함' }],
+    stream: [['첫 묘사.'], ['고친 묘사.']],
+  });
+  const store = memoryStore();
+  const game = createGame({ llm, store, rng: fixedRng(50) });
+  await game.newGame('SF');
+  const c = collect();
+  await game.turn('둘러본다', c.emit);
+  assert.deepEqual(c.types(), ['roll', 'text', 'replace', 'state']);
+  assert.equal(c.events[2].reason, '실패를 성공처럼 묘사함');
+  assert.equal(store.data.history[0].narration, '고친 묘사.');
+  const checkMsgs = llm.calls.jsonMessages[2];
+  assert.match(checkMsgs.at(-1).content, /\[판정 결과\]/);
+  assert.match(checkMsgs.at(-1).content, /첫 묘사\./);
+  const retry = llm.calls.streamMessages[1];
+  assert.deepEqual(retry.at(-2), { role: 'assistant', content: '첫 묘사.' });
+  assert.match(retry.at(-1).content, /실패를 성공처럼 묘사함/);
+});
+
+test('consistent narration is kept and checker errors do not block', async () => {
+  for (const verdict of [{ consistent: true, problem: '' }, new Error('checker down')]) {
+    const llm = fakeLlm({ json: [makeRaw(), { action: 'examine', trivial: true }, verdict], stream: [['괜찮은 묘사.']] });
+    const store = memoryStore();
+    const game = createGame({ llm, store, rng: fixedRng(50) });
+    await game.newGame('SF');
+    const c = collect();
+    await game.turn('둘러본다', c.emit);
+    assert.deepEqual(c.types(), ['roll', 'text', 'state']);
+    assert.equal(store.data.history[0].narration, '괜찮은 묘사.');
+    assert.equal(llm.calls.stream, 1);
+  }
 });
 
 test('turn emits roll, text, state in order and saves', async () => {
@@ -109,7 +148,7 @@ test('interpret retries on bad JSON', async () => {
   await game.newGame('SF');
   const c = collect();
   await game.turn('둘러본다', c.emit);
-  assert.equal(llm.calls.json, 4);
+  assert.equal(llm.calls.json, 5, 'scenario + 3 interpret attempts + 1 check');
   assert.equal(c.types()[0], 'roll');
 });
 
@@ -136,6 +175,7 @@ test('narration failure falls back to code text', async () => {
   const text = c.events.find((e) => e.type === 'text').text;
   assert.match(text, /성공/);
   assert.match(text, /무너진 회랑\(으\)로 이동/);
+  assert.equal(llm.calls.json, 2, 'fallback text is not checked');
 });
 
 test('ending streams epilogue and reveals truth', async () => {

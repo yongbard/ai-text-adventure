@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createInitialState, normalizeIntent, resolveTurn } from '../src/rules.js';
 import {
   interpretMessages, narrateMessages, epilogueMessages, scenarioMessages, unknownNames, INTERPRET_SCHEMA,
+  narrationFacts, epilogueFacts, checkMessages, CHECK_SCHEMA,
 } from '../src/prompts.js';
 import { makeScenario, fixedRng } from './fixtures.js';
 
@@ -109,6 +110,33 @@ test('epilogueMessages states final facts so the ending is not invented', () => 
   const won = epilogueMessages(s).at(-1).content;
   assert.match(won, /목표 아이템\(봉인된 성배\): 가지고 있음/);
   assert.match(won, /보스\(리치\): 쓰러뜨림/);
+});
+
+test('narrationFacts carry verdict, scene, defeated enemies and recent narration', () => {
+  const s = start();
+  s.player.location_id = 'corridor';
+  s.history.push({ input: '문을 부순다', result: {}, narration: '당신은 문을 부쉈다.' });
+  const hit = normalizeIntent({ action: 'attack', target: '쥐', base_chance: 50, stat: 'str' });
+  const { state, result } = resolveTurn(s, hit, fixedRng(20), '쥐를 벤다');
+  const facts = narrationFacts(state, '쥐를 벤다', result);
+  assert.match(facts, /^\[판정 결과\] 성공/);
+  assert.match(facts, /\[쓰러뜨린 적\] 거대 쥐/);
+  assert.match(facts, /현재 장소: 무너진 회랑/);
+  assert.match(facts, /당신은 문을 부쉈다\./);
+  assert.match(facts, /1턴: 쥐를 벤다/);
+});
+
+test('epilogueFacts and checkMessages', () => {
+  const s = start();
+  s.ending = 'death';
+  const facts = epilogueFacts(s);
+  assert.match(facts, /엔딩: 사망/);
+  assert.match(facts, /목표 아이템\(봉인된 성배\): 얻지 못함/);
+  const msgs = checkMessages(facts, '당신은 성배를 쥐고 쓰러졌다.');
+  assert.match(msgs[0].content, /모순/);
+  assert.match(msgs.at(-1).content, /\[확정 사실\]/);
+  assert.match(msgs.at(-1).content, /당신은 성배를 쥐고 쓰러졌다\./);
+  assert.deepEqual(CHECK_SCHEMA.required, ['consistent', 'problem']);
 });
 
 test('epilogueMessages includes ending, truth and log', () => {
