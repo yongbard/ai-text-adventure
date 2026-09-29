@@ -44,6 +44,36 @@ test('narrateMessages states failure and damage explicitly', () => {
   assert.match(user, /체력 -3/);
 });
 
+test('narrateMessages forbids recaps and asks to reveal enemies', () => {
+  const look = normalizeIntent({ action: 'examine', trivial: true });
+  const { state, result } = resolveTurn(start(), look, fixedRng(50), '둘러본다');
+  const system = narrateMessages(state, '둘러본다', look, result)[0].content;
+  assert.match(system, /지난 장면을 다시 요약하지 않습니다/);
+  assert.match(system, /적이 있으면/);
+  assert.match(system, /다른 장소로 들어가는 묘사를 하지 않습니다/);
+});
+
+test('interpretMessages treats entering another place as move', () => {
+  assert.match(interpretMessages(start(), 'x')[0].content, /다른 장소에 들어가는 행동은 .*move/);
+});
+
+test('epilogueMessages states final facts so the ending is not invented', () => {
+  const s = start();
+  s.ending = 'death';
+  s.player.location_id = 'corridor';
+  const user = epilogueMessages(s).at(-1).content;
+  assert.match(user, /마지막 장소: 무너진 회랑/);
+  assert.match(user, /목표 아이템\(봉인된 성배\): 얻지 못함/);
+  assert.match(user, /보스\(리치\): 살아 있음/);
+  assert.match(epilogueMessages(s)[0].content, /사실에 없는 일을 지어내지 않습니다/);
+
+  s.player.inventory.push('grail');
+  s.enemies.find((e) => e.id === 'lich').hp = 0;
+  const won = epilogueMessages(s).at(-1).content;
+  assert.match(won, /목표 아이템\(봉인된 성배\): 가지고 있음/);
+  assert.match(won, /보스\(리치\): 쓰러뜨림/);
+});
+
 test('epilogueMessages includes ending, truth and log', () => {
   const s = start();
   s.ending = 'victory';

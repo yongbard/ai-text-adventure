@@ -72,6 +72,7 @@ const INTERPRET_SYSTEM = `당신은 텍스트 어드벤처의 판정관입니다
 
 필드:
 - action: move(다른 장소로 이동), take(이곳의 아이템 줍기), use(소지품 사용), attack(적 공격), talk(인물과 대화), examine(살펴보기), other(그 외)
+  다른 장소에 들어가는 행동은 "살펴본다"는 말이 있어도 move입니다(예: "창고를 살펴본다"에서 창고가 출구 목록에 있으면 move).
 - target: 대상의 이름. 아래 목록의 이름을 그대로 씁니다. 없으면 "".
 - items_used: 이 행동에 쓰는 소지품 이름. 이미 가진 것만. 없으면 [].
 - trivial: 둘러보기, 대화, 소지품 확인, 위험 없는 이동처럼 실패할 이유가 없으면 true.
@@ -103,6 +104,9 @@ export function narrateMessages(state, input, intent, result) {
 
 규칙:
 - 한국어, 2인칭("당신"), 3~5문장.
+- 이번 행동과 그 결과만 묘사합니다. 지난 장면을 다시 요약하지 않습니다.
+- 이곳에 적이 있으면 그 존재를 분명히 드러냅니다.
+- 플레이어는 [지금 상황]의 현재 장소에 있습니다. 판정에 이동이 없으면 다른 장소로 들어가는 묘사를 하지 않습니다.
 - 확률, 주사위, 체력 같은 숫자는 말하지 않습니다.
 - 목록에 없는 새 아이템을 플레이어에게 주지 않습니다.
 - 숨겨진 진실은 직접 밝히지 않습니다. 인물은 자신이 아는 것만 말합니다.
@@ -127,14 +131,21 @@ export function narrateMessages(state, input, intent, result) {
 
 export function epilogueMessages(state) {
   const last = state.history.at(-1)?.narration ?? '';
+  const goalItem = state.items.find((i) => i.id === state.goal_item_id);
+  const boss = state.enemies.find((e) => e.id === state.boss_enemy_id);
+  const facts = [
+    `마지막 장소: ${currentLocation(state).name}`,
+    `목표 아이템(${goalItem?.name}): ${state.player.inventory.includes(state.goal_item_id) ? '가지고 있음' : '얻지 못함'}`,
+    `보스(${boss?.name}): ${boss && boss.hp <= 0 ? '쓰러뜨림' : '살아 있음'}`,
+  ].join('\n');
   return [
     {
       role: 'system',
-      content: `당신은 텍스트 어드벤처 "${state.title}"의 내레이터입니다. 이야기가 끝났습니다. 엔딩 에필로그를 한국어 2인칭으로 5~7문장 쓰세요. 마지막에 숨겨진 진실을 극적으로 드러내세요. 숫자는 쓰지 않습니다.`,
+      content: `당신은 텍스트 어드벤처 "${state.title}"의 내레이터입니다. 이야기가 끝났습니다. 엔딩 에필로그를 한국어 2인칭으로 5~7문장 쓰세요. 마지막에 숨겨진 진실을 극적으로 드러내세요. 숫자는 쓰지 않습니다. 아래 [최종 사실]과 지나온 사건을 따르고, 사실에 없는 일을 지어내지 않습니다.`,
     },
     {
       role: 'user',
-      content: `엔딩: ${ENDING_LABEL[state.ending]}\n목표: ${state.goal}\n숨겨진 진실: ${state.truth}\n\n지나온 사건:\n${state.log.join('\n')}\n\n마지막 장면: ${last}`,
+      content: `엔딩: ${ENDING_LABEL[state.ending]}\n목표: ${state.goal}\n숨겨진 진실: ${state.truth}\n\n[최종 사실]\n${facts}\n\n지나온 사건:\n${state.log.join('\n')}\n\n마지막 장면: ${last}`,
     },
   ];
 }
