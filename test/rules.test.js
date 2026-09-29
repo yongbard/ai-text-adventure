@@ -73,6 +73,15 @@ test('normalizeIntent clamps AI effects', () => {
   assert.deepEqual([none.effect_stat, none.effect_stat_delta], [null, 0]);
 });
 
+test('normalizeIntent parses combined stat effects like "str+1"', () => {
+  const up = normalizeIntent({ effect_stat: 'str+1' });
+  assert.deepEqual([up.effect_stat, up.effect_stat_delta], ['str', 1]);
+  const down = normalizeIntent({ effect_stat: 'int-2' });
+  assert.deepEqual([down.effect_stat, down.effect_stat_delta], ['int', -2]);
+  const bad = normalizeIntent({ effect_stat: 'luck+9' });
+  assert.deepEqual([bad.effect_stat, bad.effect_stat_delta], [null, 0]);
+});
+
 test('matchEntity matches id, exact name, then partial name', () => {
   const list = [{ id: 'hall', name: '성당 입구' }, { id: 'corridor', name: '무너진 회랑' }];
   assert.equal(matchEntity(list, 'hall').id, 'hall');

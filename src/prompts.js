@@ -30,8 +30,10 @@ export const INTERPRET_SCHEMA = obj({
   item_bonus: I,
   risk: { type: 'string', enum: ['low', 'medium', 'high', 'deadly'] },
   effect_hp: I,
-  effect_stat: { type: 'string', enum: ['none', 'str', 'dex', 'int'] },
-  effect_stat_delta: I,
+  effect_stat: {
+    type: 'string',
+    enum: ['none', ...['str', 'dex', 'int'].flatMap((s) => ['+1', '+2', '-1', '-2'].map((d) => s + d))],
+  },
 });
 
 const SCENARIO_SYSTEM = `당신은 1인용 텍스트 어드벤처의 시나리오 작가입니다. 요청한 장르로 한 판(약 30~60턴) 분량의 시나리오를 JSON으로 만듭니다. 모든 텍스트는 한국어로 씁니다.
@@ -91,9 +93,11 @@ const INTERPRET_SYSTEM = `당신은 텍스트 어드벤처의 판정관입니다
 - stat: 가장 관련 있는 능력치. str(힘: 힘쓰기, 근접 전투), dex(민첩: 등반, 은신, 회피), int(지능: 퍼즐, 설득, 마법, 관찰).
 - item_bonus: 사용하는 소지품이 행동에 도움이 되는 정도(0~20).
 - risk: 실패했을 때의 위험도. low(창피한 정도), medium(가벼운 부상), high(심한 부상), deadly(목숨이 위험).
-- effect_hp: 이 행동이 성공하면 플레이어의 몸에 직접 생기는 체력 변화(-5~5). 음식, 휴식, 치료, 독, 저주 등. 전투 피해, 실패 피해, 소지품 회복 아이템 효과는 코드가 처리하므로 0.
-- effect_stat: 이 행동이 성공하면 능력치가 바뀌는 경우 그 능력치(str/dex/int), 아니면 "none". 훈련, 깨달음, 저주, 큰 부상처럼 이야기상 납득될 때만.
-- effect_stat_delta: 능력치 변화량(-2~2). effect_stat이 "none"이면 0.`;
+- effect_hp: 이 행동이 성공하면 플레이어의 몸에 직접 생기는 체력 변화(-5~5).
+  예: 음식을 먹거나 쉬면 +1~+3, 상처를 치료하면 +2~+4, 독이나 상한 것을 먹으면 -1~-3, 저주나 자해는 -2~-5.
+  전투 피해, 실패 피해, 소지품 회복 아이템(heal) 효과는 코드가 처리하므로 그런 경우에만 0.
+- effect_stat: 이 행동이 성공하면 바뀌는 능력치와 변화량(예: "str+1", "int-2"). 바뀌지 않으면 "none".
+  예: 근력 훈련 → "str+1", 곡예·몸풀기 연습 → "dex+1", 공부·명상으로 깨달음 → "int+1", 저주·큰 부상 → 해당 능력치 "-1"~"-2".`;
 
 export function interpretMessages(state, input) {
   return [

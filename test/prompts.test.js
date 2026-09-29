@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createInitialState, normalizeIntent, resolveTurn } from '../src/rules.js';
-import { interpretMessages, narrateMessages, epilogueMessages, scenarioMessages, unknownNames } from '../src/prompts.js';
+import {
+  interpretMessages, narrateMessages, epilogueMessages, scenarioMessages, unknownNames, INTERPRET_SCHEMA,
+} from '../src/prompts.js';
 import { makeScenario, fixedRng } from './fixtures.js';
 
 const start = () => createInitialState(makeScenario());
@@ -78,6 +80,14 @@ test('narrateMessages forbids recaps and asks to reveal enemies', () => {
   assert.match(system, /지난 장면을 다시 요약하지 않습니다/);
   assert.match(system, /적이 있으면/);
   assert.match(system, /다른 장소로 들어가는 묘사를 하지 않습니다/);
+});
+
+test('interpretMessages gives concrete examples for AI effects', () => {
+  const system = interpretMessages(start(), 'x')[0].content;
+  assert.match(system, /근력 훈련 → "str\+1"/);
+  assert.match(system, /음식을 먹거나 쉬면 \+1~\+3/);
+  assert.ok(INTERPRET_SCHEMA.properties.effect_stat.enum.includes('dex-2'));
+  assert.equal(INTERPRET_SCHEMA.properties.effect_stat_delta, undefined);
 });
 
 test('interpretMessages treats entering another place as move', () => {

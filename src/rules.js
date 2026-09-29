@@ -56,8 +56,17 @@ export function gradeRoll(roll, chance, crit = 0, fumble = 0) {
   return 'failure';
 }
 
+// AI는 "str+1"처럼 능력치와 변화량을 한 값으로 준다. 테스트 등에서는 effect_stat + effect_stat_delta도 허용
+function parseStatEffect(raw) {
+  const combined = /^(str|dex|int)([+-][12])$/.exec(String(raw.effect_stat ?? ''));
+  if (combined) return { stat: combined[1], delta: Number(combined[2]) };
+  if (STATS.includes(raw.effect_stat)) return { stat: raw.effect_stat, delta: Math.round(clamp(num(raw.effect_stat_delta, 0), -2, 2)) };
+  return { stat: null, delta: 0 };
+}
+
 export function normalizeIntent(raw = {}) {
   const target = typeof raw.target === 'string' ? raw.target.trim() : '';
+  const statEffect = parseStatEffect(raw);
   return {
     action: ACTIONS.includes(raw.action) ? raw.action : 'other',
     target: target || null,
@@ -71,8 +80,8 @@ export function normalizeIntent(raw = {}) {
     item_bonus: Math.round(clamp(num(raw.item_bonus, 0), 0, 20)),
     risk: RISKS.includes(raw.risk) ? raw.risk : 'medium',
     effect_hp: Math.round(clamp(num(raw.effect_hp, 0), -5, 5)),
-    effect_stat: STATS.includes(raw.effect_stat) ? raw.effect_stat : null,
-    effect_stat_delta: STATS.includes(raw.effect_stat) ? Math.round(clamp(num(raw.effect_stat_delta, 0), -2, 2)) : 0,
+    effect_stat: statEffect.stat,
+    effect_stat_delta: statEffect.delta,
   };
 }
 
