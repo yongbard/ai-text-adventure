@@ -1,10 +1,16 @@
-import { createInitialState, normalizeIntent, resolveTurn, publicState, GRADE_LABEL } from './rules.js';
+import {
+  createInitialState, normalizeIntent, resolveTurn, publicState, GRADE_LABEL,
+  pickBlooms, applyChronicle, hasAdded, updateStagnation, migrateState, sanitizeResult,
+} from './rules.js';
 import { generateScenario } from './scenario.js';
 import { drawTraits } from './traits.js';
 import {
   interpretMessages, narrateMessages, epilogueMessages, unknownNames, INTERPRET_SCHEMA,
   narrationFacts, epilogueFacts, checkMessages, CHECK_SCHEMA,
+  chronicleMessages, CHRONICLE_SCHEMA, endingToneMessages, ENDING_SCHEMA,
 } from './prompts.js';
+
+const TONES = ['light', 'gray', 'shadow'];
 
 export function createGame({ llm, store, rng = Math.random }) {
   let current = null;
@@ -79,6 +85,27 @@ export function createGame({ llm, store, rng = Math.random }) {
     return text;
   }
 
+  // 기록관: 묘사에서 새로 생긴 것을 장부에 올린다. 실패하면 아무것도 추가하지 않음
+  async function chronicle(state, input, result, narration) {
+    let raw = null;
+    try {
+      raw = await llm.json(chronicleMessages(state, input, result, narration), CHRONICLE_SCHEMA, { temperature: 0.2 });
+    } catch {
+      // 기록 생략
+    }
+    return applyChronicle(state, raw, { turn: state.turn, input, grade: result.grade, rng });
+  }
+
+  async function endingTone(state) {
+    try {
+      const raw = await llm.json(endingToneMessages(state), ENDING_SCHEMA, { temperature: 0.3 });
+      if (TONES.includes(raw?.tone)) return { tone: raw.tone, title: String(raw.title ?? '').trim().slice(0, 30) };
+    } catch {
+      // 기본값 사용
+    }
+    return { tone: 'gray', title: '' };
+  }
+
   return {
     async status() {
       return { ...(await llm.status()), model_name: llm.model, hasSave: store.exists() };
@@ -94,7 +121,7 @@ export function createGame({ llm, store, rng = Math.random }) {
 
     load() {
       current = store.load();
-      return current ? publicState(current) : null;
+      return current ? publicState(migrateState(current)) : null;
     },
 
     turn(input, emit) {
@@ -111,15 +138,22 @@ export function createGame({ llm, store, rng = Math.random }) {
         }
 
         const { state, result } = resolveTurn(current, intent, rng, text);
-        emit({ type: 'roll', result });
+        if (!state.ending) result.bloom = pickBlooms(state);
+        const shown = sanitizeResult(result);
+        emit({ type: 'roll', result: shown });
 
         const fallback = `${GRADE_LABEL[result.grade]} — ${result.changes.join(', ') || result.reason}`;
         const narration = await streamText(
           state, narrateMessages(state, text, intent, result), emit, 'text', fallback, narrationFacts(state, text, result),
         );
-        state.history.push({ input: text, result, narration });
+        state.history.push({ turn: state.turn, input: text, result: shown, narration });
+
+        const added = state.ending ? applyChronicle(state, null, {}) : await chronicle(state, text, result, narration);
+        if (hasAdded(added)) emit({ type: 'world', added });
+        updateStagnation(current, state, added);
 
         if (state.ending) {
+          state.endingTone = await endingTone(state);
           state.epilogue = await streamText(
             state, epilogueMessages(state), emit, 'epilogue', '이야기는 여기서 끝이 났다.', epilogueFacts(state),
           );

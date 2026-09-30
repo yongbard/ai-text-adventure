@@ -85,7 +85,72 @@ test('narration naming unknown entities is regenerated and replaced', async () =
     type: 'replace', target: 'text', text: '당신은 주위를 둘러본다.', reason: '알려주지 않은 이름이 등장함: 은빛 열쇠',
   });
   assert.equal(store.data.history[0].narration, '당신은 주위를 둘러본다.');
-  assert.equal(llm.calls.json, 2, 'name check failure skips the AI checker');
+  assert.equal(llm.calls.json, 3, 'scenario + interpret + chronicle: name check failure skips the AI checker');
+});
+
+test('chronicler records new things, emits a world event, and resets stagnation', async () => {
+  const llm = fakeLlm({
+    json: [
+      makeRaw(), { action: 'other', trivial: true }, { consistent: true, problem: '' },
+      { new_seeds: ['버튼을 눌렀다'], new_people: [{ name: '회색늑대', description: '채팅 상대', here: false, ally: false }] },
+    ],
+    stream: [['버튼을 누르자 채팅창에 회색늑대가 나타났다.']],
+  });
+  const store = memoryStore();
+  const game = createGame({ llm, store, rng: fixedRng(50) });
+  await game.newGame('SF');
+  const c = collect();
+  await game.turn('버튼을 누른다', c.emit);
+  assert.deepEqual(c.types(), ['roll', 'text', 'world', 'state']);
+  assert.deepEqual(c.events[2].added.seeds, ['버튼을 눌렀다']);
+  assert.deepEqual(c.events[2].added.people, ['회색늑대']);
+  const pub = c.events.at(-1).state;
+  assert.deepEqual(pub.seeds.map((s) => [s.text, s.fate]), [['버튼을 눌렀다', null]]);
+  assert.equal(pub.people.find((p) => p.name === '회색늑대').remote, true);
+  assert.ok(['boon', 'bane', 'twist'].includes(store.data.seeds[0].fate));
+  assert.equal(store.data.stagnation, 0);
+  assert.match(llm.calls.jsonMessages[3].at(-1).content, /회색늑대가 나타났다/);
+});
+
+test('a due seed blooms: the narrator gets its fate, the client and the save do not', async () => {
+  const s = createInitialState(makeScenario());
+  s.turn = 5;
+  s.seeds.push({
+    id: 'S9', text: '새끼 늑대를 도왔다', turn: 1, input: '돕는다', fate: 'boon', finale: false, ripen: 5,
+    status: 'planted', bloomTurn: null, outcome: '',
+  });
+  const store = memoryStore(s);
+  const llm = fakeLlm({
+    json: [{ action: 'examine', trivial: true }, { consistent: true, problem: '' }, { seed_outcomes: [{ id: 'S9', outcome: '늑대가 길을 안내했다' }] }],
+    stream: [['늑대가 나타났다.']],
+  });
+  const game = createGame({ llm, store, rng: fixedRng(50) });
+  game.load();
+  const c = collect();
+  await game.turn('둘러본다', c.emit);
+  const roll = c.events.find((e) => e.type === 'roll').result;
+  assert.deepEqual(roll.bloom, { kind: 'due', seeds: [{ id: 'S9', text: '새끼 늑대를 도왔다', turn: 1 }] });
+  assert.match(llm.calls.streamMessages[0].at(-1).content, /뜻밖의 도움/);
+  assert.equal(JSON.stringify(store.data.history).includes('boon'), false);
+  assert.deepEqual([store.data.seeds[0].status, store.data.seeds[0].outcome], ['bloomed', '늑대가 길을 안내했다']);
+});
+
+test('nothing new raises stagnation', async () => {
+  const s = createInitialState(makeScenario());
+  const store = memoryStore(s);
+  const llm = fakeLlm({ json: [{ action: 'examine', trivial: true }], stream: [['조용하다.']] });
+  const game = createGame({ llm, store, rng: fixedRng(50) });
+  game.load();
+  await game.turn('둘러본다', () => {});
+  assert.equal(store.data.stagnation, 1);
+});
+
+test('load migrates an older save', () => {
+  const s = createInitialState(makeScenario());
+  delete s.seeds;
+  delete s.knowledge;
+  const pub = createGame({ llm: fakeLlm(), store: memoryStore(s) }).load();
+  assert.deepEqual([pub.seeds, pub.knowledge], [[], []]);
 });
 
 test('checker flags a contradiction and narration is rewritten with feedback', async () => {
@@ -148,7 +213,7 @@ test('interpret retries on bad JSON', async () => {
   await game.newGame('SF');
   const c = collect();
   await game.turn('둘러본다', c.emit);
-  assert.equal(llm.calls.json, 5, 'scenario + 3 interpret attempts + 1 check');
+  assert.equal(llm.calls.json, 6, 'scenario + 3 interpret attempts + check + chronicle');
   assert.equal(c.types()[0], 'roll');
 });
 
@@ -175,7 +240,23 @@ test('narration failure falls back to code text', async () => {
   const text = c.events.find((e) => e.type === 'text').text;
   assert.match(text, /성공/);
   assert.match(text, /무너진 회랑\(으\)로 이동/);
-  assert.equal(llm.calls.json, 2, 'fallback text is not checked');
+  assert.equal(llm.calls.json, 3, 'scenario + interpret + chronicle: fallback text is not checked');
+});
+
+test('ending decides a tone and the epilogue follows it', async () => {
+  const s = createInitialState(makeScenario());
+  s.player.hp = 1;
+  const store = memoryStore(s);
+  const llm = fakeLlm({
+    json: [{ action: 'other', risk: 'deadly' }, { consistent: true, problem: '' }, { tone: 'shadow', title: '피로 산 새벽' }],
+    stream: [['당신은 쓰러졌다.'], ['모든 것이 끝났다.']],
+  });
+  const game = createGame({ llm, store, rng: fixedRng(90) });
+  game.load();
+  const c = collect();
+  await game.turn('절벽에서 뛰어내린다', c.emit);
+  assert.deepEqual(c.events.at(-1).state.endingTone, { tone: 'shadow', title: '피로 산 새벽' });
+  assert.match(llm.calls.streamMessages[1][0].content, /그림자/);
 });
 
 test('ending streams epilogue and reveals truth', async () => {
@@ -183,7 +264,7 @@ test('ending streams epilogue and reveals truth', async () => {
   s.player.hp = 1;
   const store = memoryStore(s);
   const llm = fakeLlm({
-    json: [{ action: 'other', base_chance: 10, risk: 'deadly' }],
+    json: [{ action: 'other', risk: 'deadly' }],
     stream: [['당신은 쓰러졌다.'], ['모든 것이 끝났다.']],
   });
   const game = createGame({ llm, store, rng: fixedRng(90) });
@@ -195,6 +276,7 @@ test('ending streams epilogue and reveals truth', async () => {
   assert.equal(final.ending, 'death');
   assert.equal(final.epilogue, '모든 것이 끝났다.');
   assert.equal(final.truth, '성배는 사실 리치의 심장이다.');
+  assert.deepEqual(final.endingTone, { tone: 'gray', title: '' }, 'tone falls back when the call fails');
 });
 
 test('turn rejects missing game, empty input, finished game', async () => {
