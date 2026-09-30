@@ -1,17 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { computeChance, gradeRoll, rollD100, createRng, normalizeIntent, matchEntity } from '../src/rules.js';
+import {
+  computeChance, gradeRoll, thresholds, rollD100, createRng, normalizeIntent, matchEntity,
+} from '../src/rules.js';
 
-test('computeChance applies stat and item bonus', () => {
-  assert.equal(computeChance(30, 5, 0), 40);
-  assert.equal(computeChance(30, 3, 15), 45);
-  assert.equal(computeChance(50, 1, 0), 40);
+test('computeChance compares my stat with the required stat (10% per point)', () => {
+  assert.equal(computeChance(5, 5), 50);
+  assert.equal(computeChance(5, 4), 40);
+  assert.equal(computeChance(3, 6), 80);
+  assert.equal(computeChance(12, 4), 1, '치킨집 사장의 서버 구축');
 });
 
-test('computeChance clamps to 1..99 and item bonus to 20', () => {
-  assert.equal(computeChance(95, 5, 20), 99);
-  assert.equal(computeChance(1, 1, 0), 1);
-  assert.equal(computeChance(30, 3, 50), 50);
+test('computeChance adds item (max 20) and other bonuses, clamped to 1..99', () => {
+  assert.equal(computeChance(5, 4, 10), 50);
+  assert.equal(computeChance(5, 5, 50), 70);
+  assert.equal(computeChance(5, 5, 0, -15), 35);
+  assert.equal(computeChance(1, 9, 20, 30), 99);
+});
+
+test('thresholds expose crit and fumble zones', () => {
+  assert.deepEqual(thresholds(40), { critMax: 8, fumbleFrom: 96 });
+  assert.deepEqual(thresholds(40, 2, 3), { critMax: 10, fumbleFrom: 93 });
+  assert.deepEqual(thresholds(99), { critMax: 19, fumbleFrom: 100 });
+  assert.deepEqual(thresholds(3, 5), { critMax: 3, fumbleFrom: 96 });
 });
 
 test('gradeRoll boundaries at 40%', () => {
@@ -42,13 +53,18 @@ test('rollD100 range and seeded rng is deterministic', () => {
 });
 
 test('normalizeIntent fills defaults and clamps', () => {
-  const i = normalizeIntent({ action: 'fly', base_chance: 150, item_bonus: -5, stat: 'luck', risk: 'x', target: '  ', items_used: ['칼', '', 3] });
+  const i = normalizeIntent({
+    action: 'fly', required: 150, item_bonus: -5, stat: 'luck', risk: 'x', target: '  ', items_used: ['칼', '', 3],
+    traits: [{ name: ' 달변가 ', effect: 'help' }, { name: '고소공포증', effect: 'weird' }, { effect: 'help' }, null],
+  });
   assert.deepEqual(i, {
-    action: 'other', target: null, items_used: ['칼'], trivial: false, base_chance: 99,
+    action: 'other', target: null, items_used: ['칼'], trivial: false, required: 20,
     reason: '', stat: 'dex', item_bonus: 0, risk: 'medium',
     effect_hp: 0, effect_stat: null, effect_stat_delta: 0,
+    traits: [{ name: '달변가', effect: 'help' }, { name: '고소공포증', effect: 'help' }],
   });
-  assert.equal(normalizeIntent({}).base_chance, 50);
+  assert.equal(normalizeIntent({}).required, 5);
+  assert.equal(normalizeIntent({ action: 'explore' }).action, 'explore');
 });
 
 test('gradeRoll honors crit and fumble modifiers', () => {
@@ -59,11 +75,6 @@ test('gradeRoll honors crit and fumble modifiers', () => {
   assert.equal(gradeRoll(93, 40, 0, 3), 'fumble');
   assert.equal(gradeRoll(97, 40, 0, -3), 'failure');
   assert.equal(gradeRoll(99, 40, 0, -3), 'fumble');
-});
-
-test('computeChance adds trait bonus', () => {
-  assert.equal(computeChance(30, 3, 0, 15), 45);
-  assert.equal(computeChance(10, 3, 0, -20), 1);
 });
 
 test('normalizeIntent clamps AI effects', () => {
