@@ -4,6 +4,7 @@ import { createInitialState, normalizeIntent, resolveTurn } from '../src/rules.j
 import {
   interpretMessages, narrateMessages, epilogueMessages, scenarioMessages, unknownNames, INTERPRET_SCHEMA,
   narrationFacts, epilogueFacts, checkMessages, CHECK_SCHEMA,
+  chronicleMessages, CHRONICLE_SCHEMA, endingToneMessages, ENDING_SCHEMA,
 } from '../src/prompts.js';
 import { makeScenario, fixedRng } from './fixtures.js';
 
@@ -89,6 +90,100 @@ test('interpretMessages gives concrete examples for AI effects', () => {
   assert.match(system, /음식을 먹거나 쉬면 \+1~\+3/);
   assert.ok(INTERPRET_SCHEMA.properties.effect_stat.enum.includes('dex-2'));
   assert.equal(INTERPRET_SCHEMA.properties.effect_stat_delta, undefined);
+});
+
+const seedOf = (o) => ({
+  id: 'S1', text: '새끼 늑대를 도왔다', turn: 2, input: '늑대를 돕는다', fate: 'boon', finale: false, ripen: 6,
+  status: 'planted', bloomTurn: null, outcome: '', ...o,
+});
+const withTrait = () => createInitialState(makeScenario(), [
+  { id: 'b25', name: '고소공포증', good: false, group: 'heights', check: 15, description: '높은 곳만 보면 다리가 풀린다.', effects: {} },
+]);
+
+test('interpret schema asks for required stat, relevant traits and explore', () => {
+  const p = INTERPRET_SCHEMA.properties;
+  assert.ok(p.action.enum.includes('explore'));
+  assert.equal(p.required.type, 'integer');
+  assert.deepEqual(p.traits.items.properties.effect.enum, ['help', 'hinder']);
+  assert.equal(p.base_chance, undefined);
+});
+
+test('interpretMessages explains required scale and lists traits and remote people', () => {
+  const s = withTrait();
+  s.npcs.push({ id: 'P1', name: '회색늑대', remote: true, location_id: null, met: { turn: 1 }, description: '채팅 상대' });
+  const [system, user] = interpretMessages(s, '옥상으로 올라간다');
+  assert.match(system.content, /required/);
+  assert.match(system.content, /치킨집 사장/);
+  assert.match(system.content, /explore/);
+  assert.match(user.content, /성격: 고소공포증\(높은 곳만 보면 다리가 풀린다\.\)/);
+  assert.match(user.content, /원격으로 연결된 인물: 회색늑대/);
+});
+
+test('narrateMessages allows new things, lists seeds without fate, and forbids nothing new only for boss/goal', () => {
+  const s = start();
+  s.seeds.push(seedOf());
+  const look = normalizeIntent({ action: 'examine', trivial: true });
+  const { state, result } = resolveTurn(s, look, fixedRng(50), '둘러본다');
+  const [system, user] = narrateMessages(state, '둘러본다', look, result);
+  assert.match(system.content, /그럴듯하게 생겨나거나 드러나는/);
+  assert.equal(system.content.includes('새로 등장시키지 않습니다'), false);
+  assert.match(user.content, /\[심어진 씨앗\]\n- 새끼 늑대를 도왔다/);
+  assert.equal(user.content.includes('boon'), false);
+  assert.equal(user.content.includes('[나비효과]'), false);
+});
+
+test('narrateMessages gives a butterfly directive tied to the goal when a seed blooms', () => {
+  const look = normalizeIntent({ action: 'examine', trivial: true });
+  const { state, result } = resolveTurn(start(), look, fixedRng(50), '둘러본다');
+  result.bloom = { kind: 'due', seeds: [{ id: 'S1', text: '버튼을 눌렀다', turn: 2, fate: 'bane' }] };
+  const user = narrateMessages(state, '둘러본다', look, result).at(-1).content;
+  assert.match(user, /\[나비효과\].*2턴.*버튼을 눌렀다/s);
+  assert.match(user, /이야기에 없던 위기/);
+  assert.match(user, /최종 목표/);
+  const facts = narrationFacts(state, '둘러본다', result);
+  assert.match(facts, /\[나비효과\]/);
+  assert.match(facts, /\[배경\] 당신은 버려진 성당에 들어섰다\./);
+  result.bloom = { kind: 'event', seeds: [] };
+  assert.match(narrateMessages(state, '둘러본다', look, result).at(-1).content, /새로운 사건/);
+});
+
+test('checker treats new things and failure explanations as consistent', () => {
+  const system = checkMessages('x', 'y')[0].content;
+  assert.match(system, /새로운 인물·물건·장소·상황이 등장하는 것 자체는 모순이 아닙니다/);
+  assert.match(system, /원인을 어떻게 설명하는지는 평가하지 않습니다/);
+});
+
+test('chronicleMessages gives narration, verdict and bloomed seed ids; schema covers the ledger', () => {
+  const look = normalizeIntent({ action: 'examine', trivial: true });
+  const { state, result } = resolveTurn(start(), look, fixedRng(50), '둘러본다');
+  result.bloom = { kind: 'due', seeds: [{ id: 'S3', text: '버튼을 눌렀다', turn: 2, fate: 'bane' }] };
+  const [system, user] = chronicleMessages(state, '둘러본다', result, '벽 틈에서 쪽지가 떨어졌다.');
+  assert.match(system.content, /씨앗/);
+  assert.match(system.content, /사소해 보여도/);
+  assert.match(user.content, /벽 틈에서 쪽지가 떨어졌다\./);
+  assert.match(user.content, /\[판정 결과\]/);
+  assert.match(user.content, /S3: 버튼을 눌렀다/);
+  assert.deepEqual(Object.keys(CHRONICLE_SCHEMA.properties), [
+    'new_seeds', 'seed_outcomes', 'new_knowledge', 'new_people', 'new_allies', 'new_items', 'new_places', 'new_enemies',
+    'current_place_description',
+  ]);
+});
+
+test('ending tone and epilogue reveal seeds, fates, outcomes and allies', () => {
+  const s = start();
+  s.ending = 'victory';
+  s.seeds.push(seedOf({ status: 'bloomed', bloomTurn: 9, outcome: '늑대 무리가 결전에 합류했다' }), seedOf({ id: 'S2', text: '깡패를 때렸다', fate: 'twist' }));
+  s.npcs.push({ id: 'P1', name: '늑대 무리', ally: true, met: { turn: 9 } });
+  const tone = endingToneMessages(s);
+  assert.deepEqual(ENDING_SCHEMA.properties.tone.enum, ['light', 'gray', 'shadow']);
+  assert.match(tone.at(-1).content, /은혜.*늑대 무리가 결전에 합류했다/s);
+  assert.match(tone.at(-1).content, /동료: 늑대 무리/);
+  s.endingTone = { tone: 'shadow', title: '피로 산 새벽' };
+  const epi = epilogueMessages(s);
+  assert.match(epi[0].content, /그림자/);
+  assert.match(epi.at(-1).content, /피로 산 새벽/);
+  assert.match(epi.at(-1).content, /깡패를 때렸다.*반전/s);
+  assert.match(epilogueFacts(s), /\[씨앗\]/);
 });
 
 test('interpretMessages treats entering another place as move', () => {
