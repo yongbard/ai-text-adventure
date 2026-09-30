@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ko">
+<html lang="ko" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,75 +8,143 @@
 </head>
 <body>
   <main id="start">
-    <h1>🎲 AI 텍스트 어드벤처</h1>
+    <h1><span class="ic">🎲 </span>AI 텍스트 어드벤처</h1>
     <p class="sub">자유롭게 행동하세요. 개연성이 확률이 되고, 주사위가 운명을 정합니다.</p>
     <div id="status-msg" class="notice" hidden></div>
     <input id="job-input" class="job-input" placeholder="직업 (선택) — 예: 해커, 퇴마사, 치킨집 사장. 비우면 AI가 정해요" maxlength="50">
+    <div class="themes" role="radiogroup" aria-label="화면 테마">
+      <button type="button" class="theme-choice" data-theme-choice="dark"><span class="ic">🌙 </span>다크</button>
+      <button type="button" class="theme-choice" data-theme-choice="light"><span class="ic">☀ </span>라이트</button>
+      <button type="button" class="theme-choice" data-theme-choice="code"><span class="ic">💻 </span>코드 에디터 위장</button>
+      <button type="button" class="theme-choice" data-theme-choice="agent"><span class="ic">🤖 </span>AI 코딩 도우미 위장</button>
+    </div>
+    <p class="theme-hint">어느 화면에서든 <kbd>Esc</kbd>를 누르면 업무 화면으로 숨습니다.</p>
     <div class="genres">
-      <button class="genre" data-genre="다크 판타지 — 버려진 성당과 저주받은 유물">🕯 다크 판타지</button>
-      <button class="genre" data-genre="좀비 아포칼립스 — 현대 한국 도시에서의 생존">🧟 좀비 생존</button>
-      <button class="genre" data-genre="SF 미스터리 — 고립된 우주선에서 깨어남">🚀 우주선 SF</button>
+      <button class="genre" data-genre="다크 판타지 — 버려진 성당과 저주받은 유물"><span class="ic">🕯 </span>다크 판타지</button>
+      <button class="genre" data-genre="좀비 아포칼립스 — 현대 한국 도시에서의 생존"><span class="ic">🧟 </span>좀비 생존</button>
+      <button class="genre" data-genre="SF 미스터리 — 고립된 우주선에서 깨어남"><span class="ic">🚀 </span>우주선 SF</button>
     </div>
     <form id="custom-form" class="custom">
       <input id="custom-genre" placeholder="직접 입력 (예: 조선시대 귀신 나오는 한옥)" maxlength="100">
       <button>시작</button>
     </form>
-    <button id="continue-btn" class="continue" hidden>▶ 이어하기</button>
+    <button id="continue-btn" class="continue" hidden><span class="ic">▶ </span>이어하기</button>
     <p id="loading" class="loading" hidden></p>
   </main>
 
-  <div id="game" class="layout" hidden>
-    <section class="story-col">
-      <header class="story-head">
-        <h2 id="title"></h2>
-        <span id="turn"></span>
-      </header>
-      <div id="story" class="story"></div>
-      <form id="input-form" class="input-row">
-        <input id="action-input" placeholder="무엇을 하시겠습니까?" maxlength="300" autocomplete="off">
-        <button id="action-btn">실행</button>
-      </form>
-    </section>
-    <aside class="panel">
-      <nav class="tabs">
-        <button data-tab="status" class="active">상태</button>
-        <button data-tab="items">소지품·지식</button>
-        <button data-tab="world">인물·실타래</button>
-        <button data-tab="history">기록</button>
+  <div id="game" class="app" hidden>
+    <div class="chrome-top" aria-hidden="true">
+      <span>파일</span><span>편집</span><span>선택</span><span>보기</span><span>이동</span><span>실행</span><span>터미널</span><span>도움말</span>
+      <span class="chrome-title">workspace</span>
+    </div>
+    <div class="layout">
+      <nav class="activity" aria-hidden="true"><span>⧉</span><span>⌕</span><span>⑂</span><span>▷</span><span>⊞</span></nav>
+      <nav class="sessions" aria-hidden="true">
+        <div class="session-new">＋ 새 대화</div>
+        <div class="session-group">오늘</div>
+        <div class="session active">API 응답 캐싱 적용</div>
+        <div class="session">결제 모듈 리팩터링</div>
+        <div class="session-group">어제</div>
+        <div class="session">로그인 오류 수정</div>
+        <div class="session">테스트 커버리지 보강</div>
+        <div class="session">빌드 설정 정리</div>
       </nav>
-      <section class="tab" id="tab-status">
-        <div class="block" id="hp-block">
-          <div class="label">❤ 체력 <span id="hp-text"></span></div>
-          <div class="bar"><div id="hp-bar"></div></div>
-        </div>
-        <div class="block" id="stats"></div>
-        <div class="block">
-          <div class="label">🧑 직업</div>
-          <div id="job"></div>
-          <div id="specialty" class="small"></div>
-        </div>
-        <div class="block"><div class="label">🎭 성격</div><ul id="traits" class="list"></ul></div>
-        <div class="block"><div class="label">🎯 목표</div><div id="goal" class="small"></div></div>
-        <div class="block">
-          <div class="label">📍 현재 위치</div>
-          <div id="location"></div>
-          <div id="exits" class="small"></div>
-        </div>
-        <div class="block"><div class="label">🗺 가본 곳</div><div id="visited" class="small"></div></div>
+      <section class="story-col">
+        <header class="story-head">
+          <h2 id="title"></h2>
+          <span class="head-alt" id="head-alt"></span>
+          <span id="turn"></span>
+        </header>
+        <div id="story" class="story"></div>
+        <form id="input-form" class="input-row">
+          <span class="prompt-mark" aria-hidden="true">PS C:\workspace&gt;</span>
+          <input id="action-input" placeholder="무엇을 하시겠습니까?" maxlength="300" autocomplete="off">
+          <button id="action-btn">실행</button>
+        </form>
       </section>
-      <section class="tab" id="tab-items" hidden>
-        <div class="block"><div class="label">🎒 소지품</div><ul id="inventory" class="list"></ul></div>
-        <div class="block"><div class="label">🧠 알게 된 것</div><ul id="knowledge" class="list"></ul></div>
-      </section>
-      <section class="tab" id="tab-world" hidden>
-        <div class="block"><div class="label">🧑 알게 된 인물</div><ul id="people" class="list"></ul></div>
-        <div class="block"><div class="label">🧵 이야기 실타래</div><ul id="seeds" class="list"></ul></div>
-      </section>
-      <section class="tab" id="tab-history" hidden>
-        <ol id="history" class="list history"></ol>
-      </section>
-    </aside>
+      <aside class="panel">
+        <div class="panel-title" aria-hidden="true"></div>
+        <nav class="tabs">
+          <button data-tab="status" class="active">상태</button>
+          <button data-tab="items">소지품·지식</button>
+          <button data-tab="world">인물·실타래</button>
+          <button data-tab="history">기록</button>
+        </nav>
+        <section class="tab" id="tab-status">
+          <div class="block" id="hp-block">
+            <div class="label"><span class="ic">❤ </span>체력 <span id="hp-text"></span></div>
+            <div class="bar"><div id="hp-bar"></div></div>
+          </div>
+          <div class="block" id="stats"></div>
+          <div class="block">
+            <div class="label"><span class="ic">🧑 </span>직업</div>
+            <div id="job"></div>
+            <div id="specialty" class="small"></div>
+          </div>
+          <div class="block"><div class="label"><span class="ic">🎭 </span>성격</div><ul id="traits" class="list"></ul></div>
+          <div class="block"><div class="label"><span class="ic">🎯 </span>목표</div><div id="goal" class="small"></div></div>
+          <div class="block">
+            <div class="label"><span class="ic">📍 </span>현재 위치</div>
+            <div id="location"></div>
+            <div id="exits" class="small"></div>
+          </div>
+          <div class="block"><div class="label"><span class="ic">🗺 </span>가본 곳</div><div id="visited" class="small"></div></div>
+        </section>
+        <section class="tab" id="tab-items" hidden>
+          <div class="block"><div class="label"><span class="ic">🎒 </span>소지품</div><ul id="inventory" class="list"></ul></div>
+          <div class="block"><div class="label"><span class="ic">🧠 </span>알게 된 것</div><ul id="knowledge" class="list"></ul></div>
+        </section>
+        <section class="tab" id="tab-world" hidden>
+          <div class="block"><div class="label"><span class="ic">🧑 </span>알게 된 인물</div><ul id="people" class="list"></ul></div>
+          <div class="block"><div class="label"><span class="ic">🧵 </span>이야기 실타래</div><ul id="seeds" class="list"></ul></div>
+        </section>
+        <section class="tab" id="tab-history" hidden>
+          <ol id="history" class="list history"></ol>
+        </section>
+      </aside>
+    </div>
+    <div class="statusbar" id="statusbar" aria-hidden="true"></div>
   </div>
+
+  <div id="boss" class="boss" hidden>
+    <div class="boss-code">
+      <div class="boss-tabs"><span class="on">order.service.ts</span><span>order.controller.ts</span><span>order.spec.ts</span></div>
+      <pre><code><span class="k">import</span> { Injectable } <span class="k">from</span> <span class="s">'@nestjs/common'</span>;
+<span class="k">import</span> { OrderRepository } <span class="k">from</span> <span class="s">'./order.repository'</span>;
+<span class="k">import</span> { CreateOrderDto, OrderStatus } <span class="k">from</span> <span class="s">'./order.types'</span>;
+
+<span class="c">/**
+ * 주문 생성 및 상태 전이를 담당한다.
+ * 결제 승인 전에는 PENDING, 승인 후 CONFIRMED로 전환한다.
+ */</span>
+@Injectable()
+<span class="k">export class</span> <span class="t">OrderService</span> {
+  <span class="k">constructor</span>(<span class="k">private readonly</span> repo: <span class="t">OrderRepository</span>) {}
+
+  <span class="k">async</span> <span class="f">create</span>(dto: <span class="t">CreateOrderDto</span>) {
+    <span class="k">const</span> total = dto.items.<span class="f">reduce</span>((sum, i) =&gt; sum + i.price * i.quantity, <span class="n">0</span>);
+    <span class="k">if</span> (total &lt;= <span class="n">0</span>) <span class="k">throw new</span> <span class="t">Error</span>(<span class="s">'주문 금액이 올바르지 않습니다'</span>);
+    <span class="k">return</span> <span class="k">this</span>.repo.<span class="f">save</span>({ ...dto, total, status: <span class="t">OrderStatus</span>.PENDING });
+  }
+
+  <span class="k">async</span> <span class="f">confirm</span>(orderId: <span class="t">string</span>) {
+    <span class="k">const</span> order = <span class="k">await this</span>.repo.<span class="f">findById</span>(orderId);
+    <span class="k">if</span> (!order) <span class="k">throw new</span> <span class="t">Error</span>(<span class="s">`주문을 찾을 수 없습니다: ${orderId}`</span>);
+    <span class="c">// TODO: 재고 차감은 트랜잭션으로 묶을 것</span>
+    <span class="k">return</span> <span class="k">this</span>.repo.<span class="f">update</span>(orderId, { status: <span class="t">OrderStatus</span>.CONFIRMED });
+  }
+}</code></pre>
+    </div>
+    <div class="boss-agent">
+      <div class="boss-msg user">주문 서비스에 금액 검증 테스트 좀 추가해줘</div>
+      <div class="boss-msg">금액이 0 이하일 때 예외가 나는지 확인하는 테스트를 추가하겠습니다.</div>
+      <div class="boss-tool">● Read(src/order/order.service.ts)<br>&nbsp;&nbsp;⎿ 38줄 읽음</div>
+      <div class="boss-tool">● Edit(src/order/order.service.spec.ts)<br>&nbsp;&nbsp;⎿ 테스트 2개 추가</div>
+      <div class="boss-tool">● Bash(npm test -- order)<br>&nbsp;&nbsp;⎿ Tests: 14 passed, 14 total</div>
+      <div class="boss-msg">테스트를 추가했고 14개 모두 통과합니다. 금액이 0이거나 음수인 경우를 각각 검증합니다.</div>
+    </div>
+  </div>
+
   <div id="tip" class="tip" hidden></div>
   <script type="module" src="app.js"></script>
 </body>

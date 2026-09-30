@@ -7,11 +7,93 @@ const GRADE = {
   fumble: ['💀', '대실패!', 'fumble'],
   impossible: ['🚫', '불가능', 'fail'],
 };
-const ENDING = { victory: '🏆 승리', death: '💀 사망', timeout: '⌛ 시간 초과' };
+const CODE_GRADE = { critical: 'CRIT', success: 'PASS', failure: 'FAIL', fumble: 'FATAL', impossible: 'SKIP' };
+const ENDING = { victory: ['🏆', '승리'], death: ['💀', '사망'], timeout: ['⌛', '시간 초과'] };
 const TONE = { light: '빛의 결말', gray: '회색의 결말', shadow: '그림자의 결말' };
-const FATE = { boon: '🌱 은혜', bane: '🔥 재앙', twist: '🎭 반전' };
+const FATE = { boon: ['🌱', '은혜'], bane: ['🔥', '재앙'], twist: ['🎭', '반전'] };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const sign = (n) => (n > 0 ? `+${n}` : `${n}`);
+
+// ---------- 테마 ----------
+const THEMES = {
+  dark: { plain: false, tabs: ['상태', '소지품·지식', '인물·실타래', '기록'], placeholder: '무엇을 하시겠습니까?', button: '실행', head: '' },
+  light: { plain: false, tabs: ['상태', '소지품·지식', '인물·실타래', '기록'], placeholder: '무엇을 하시겠습니까?', button: '실행', head: '' },
+  code: { plain: true, tabs: ['status.ts', 'inventory.ts', 'people.ts', 'history.log'], placeholder: '', button: 'Run', head: 'story.ts' },
+  agent: { plain: true, tabs: ['상태', '소지품', '인물', '기록'], placeholder: '메시지를 입력하세요…', button: '전송', head: 'API 응답 캐싱 적용' },
+};
+let theme = 'dark';
+const plain = () => THEMES[theme].plain;
+const ic = (emoji) => (plain() ? '' : `${emoji} `);
+
+function loadTheme() {
+  try {
+    const saved = localStorage.getItem('adventure-theme');
+    if (THEMES[saved]) return saved;
+  } catch {
+    // 저장소를 못 쓰면 기본값
+  }
+  return 'dark';
+}
+
+function applyTheme(name) {
+  theme = name;
+  document.documentElement.dataset.theme = name;
+  try {
+    localStorage.setItem('adventure-theme', name);
+  } catch {
+    // 기억 못 해도 동작에는 문제없음
+  }
+  const t = THEMES[name];
+  document.querySelectorAll('.theme-choice').forEach((b) => b.classList.toggle('active', b.dataset.themeChoice === name));
+  document.querySelectorAll('.tabs button').forEach((b, i) => { b.textContent = t.tabs[i]; });
+  $('action-input').placeholder = t.placeholder;
+  $('action-btn').textContent = t.button;
+  $('head-alt').textContent = t.head;
+}
+
+// 테마별 문구
+function fmt() {
+  if (theme === 'code') {
+    return {
+      player: (input) => `await act("${input}");`,
+      intro: (text) => `// ${text}`,
+      thinking: '// running...',
+      rollHead: (r) => `check("${STAT[r.stat][1]}", { need: ${r.required}, have: ${r.statValue} }); // ${r.chance}%`,
+      rolling: (n) => `→ ${n}`,
+      rollResult: (r) => `→ ${r.roll}  ${CODE_GRADE[r.grade]}`,
+      simple: (r) => (r.kind === 'impossible' ? `// SKIP: ${r.reason}` : '// ok'),
+      bloom: (s) => `// TODO(${s.turn}턴): “${s.text}” 되돌아옴`,
+      event: '// WARN: 예상치 못한 변경',
+      world: (parts) => `// + ${parts.join(', ')}`,
+    };
+  }
+  if (theme === 'agent') {
+    return {
+      player: (input) => input,
+      intro: (text) => text,
+      thinking: '생각하는 중…',
+      rollHead: (r) => `● Roll(${STAT[r.stat][1]} 필요 ${r.required} · 현재 ${r.statValue}, ${r.chance}%)`,
+      rolling: (n) => `⎿  ${n}…`,
+      rollResult: (r) => `⎿  ${r.roll} → ${GRADE[r.grade][1]}`,
+      simple: (r) => (r.kind === 'impossible' ? `● Check\n  ⎿  불가능: ${r.reason}` : '● Check\n  ⎿  자동 성공'),
+      bloom: (s) => `● Recall(${s.turn}턴)\n  ⎿  “${s.text}”`,
+      event: '● Event\n  ⎿  새로운 전개',
+      world: (parts) => `  ⎿  추가됨: ${parts.join(', ')}`,
+    };
+  }
+  return {
+    player: (input) => `▶ ${input}`,
+    intro: (text) => text,
+    thinking: '🤔 판정관이 행동을 살피는 중...',
+    rollHead: (r) => `${difficulty(r.chance)} · 성공 확률 ${r.chance}%`,
+    rolling: (n) => `🎲 ${n}`,
+    rollResult: (r) => `${GRADE[r.grade][0]} ${GRADE[r.grade][1]} · 주사위 ${r.roll}`,
+    simple: (r) => (r.kind === 'impossible' ? `${GRADE.impossible[0]} 불가능 — ${r.reason}` : '✔ 자동 성공'),
+    bloom: (s) => `🦋 나비효과 — ${s.turn}턴의 “${s.text}”`,
+    event: '🦋 무언가가 움직이기 시작합니다…',
+    world: (parts) => parts.join(' · '),
+  };
+}
 
 let prevInventory = [];
 let prevHp = null;
@@ -59,6 +141,21 @@ function setBusy(busy) {
   $('action-btn').disabled = busy || ended;
   if (!busy && !ended) $('action-input').focus();
 }
+
+// ---------- 보스 키 ----------
+let focusBeforeBoss = null;
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const boss = $('boss');
+  if (boss.hidden) {
+    focusBeforeBoss = document.activeElement;
+    tip.hidden = true;
+    boss.hidden = false;
+  } else {
+    boss.hidden = true;
+    focusBeforeBoss?.focus?.();
+  }
+});
 
 // ---------- 툴팁 ----------
 const tip = $('tip');
@@ -132,13 +229,14 @@ function rollDetail(r) {
   if (r.itemBonus) parts.push(`아이템 +${r.itemBonus}%`);
   for (const t of r.traitsApplied ?? []) parts.push(`${t.name} ${sign(t.value)}%`);
   if (r.allyBonus) parts.push(`동료 +${r.allyBonus}%`);
-  return parts.join(' · ');
+  const text = parts.join(' · ');
+  return theme === 'code' ? `// ${text}` : text;
 }
 
 // v1.2 이전 결과 표시
 function legacyRollText(r) {
   const [icon, label] = GRADE[r.grade];
-  return `🎲 성공 확률 ${r.chance}% → 주사위 ${r.roll} (${r.chance} 이하 성공) → ${icon} ${label}`;
+  return `${ic('🎲')}성공 확률 ${r.chance}% → 주사위 ${r.roll} (${r.chance} 이하 성공) → ${ic(icon)}${label}`;
 }
 
 function barTrack(r) {
@@ -158,56 +256,58 @@ function barTrack(r) {
 }
 
 async function showRoll(r, animate) {
-  const [icon, label, cls] = GRADE[r.grade];
+  const f = fmt();
+  const cls = GRADE[r.grade][2];
   if (r.kind !== 'roll' || r.required === undefined) {
-    const textLine = r.kind === 'impossible' ? `${icon} ${label} — ${r.reason}` : r.kind === 'auto' ? '✔ 자동 성공' : legacyRollText(r);
-    const line = addBlock(`roll ${cls}`, textLine);
+    const line = addBlock(`roll ${cls}`, r.kind === 'roll' ? legacyRollText(r) : f.simple(r));
     if (r.changes.length) line.append(el('div', 'changes', r.changes.join(' · ')));
     return;
   }
   const box = addBlock('roll dice');
-  box.append(el('div', 'roll-head', `${difficulty(r.chance)} · 성공 확률 ${r.chance}%`));
+  box.append(el('div', 'roll-head', f.rollHead(r)));
   const { track, marker } = barTrack(r);
   box.append(track);
-  const res = el('div', 'roll-result', '🎲 굴리는 중...');
+  const res = el('div', 'roll-result', f.rolling('…'));
   box.append(res);
-  if (animate) {
+  if (animate && !plain()) {
     for (let i = 0; i < 14; i++) {
       const n = Math.floor(Math.random() * 100) + 1;
       marker.style.left = `${n - 0.5}%`;
-      res.textContent = `🎲 ${n}`;
+      res.textContent = f.rolling(n);
       await sleep(70);
     }
   }
   marker.style.left = `${r.roll - 0.5}%`;
   box.classList.add(cls);
-  res.textContent = `${icon} ${label} · 주사위 ${r.roll}`;
+  res.textContent = f.rollResult(r);
   box.append(el('div', 'roll-detail', rollDetail(r)));
-  if (r.reason) box.append(el('div', 'reason', r.reason));
-  if (r.changes.length) box.append(el('div', 'changes', r.changes.join(' · ')));
+  if (r.reason) box.append(el('div', 'reason', theme === 'code' ? `// ${r.reason}` : r.reason));
+  if (r.changes.length) box.append(el('div', 'changes', theme === 'code' ? `// ${r.changes.join(', ')}` : r.changes.join(' · ')));
   scrollStory();
 }
 
 function showBloom(bloom) {
   if (!bloom) return;
+  const f = fmt();
   if (bloom.kind === 'event') {
-    addBlock('butterfly', '🦋 무언가가 움직이기 시작합니다…');
+    addBlock('butterfly', f.event);
     return;
   }
-  for (const s of bloom.seeds) addBlock('butterfly', `🦋 나비효과 — ${s.turn}턴의 “${s.text}”`);
+  for (const s of bloom.seeds) addBlock('butterfly', f.bloom(s));
 }
 
 function showWorld(added) {
+  const tag = (emoji, word) => (plain() ? `${word} ` : `${emoji} `);
   const parts = [
-    ...added.seeds.map((t) => `🌱 ${t}`),
-    ...added.people.map((n) => `🧑 ${n}`),
-    ...added.allies.map((n) => `🤝 ${n}`),
-    ...added.items.map((n) => `🎒 ${n}`),
-    ...added.places.map((n) => `🗺 ${n}`),
-    ...added.enemies.map((n) => `👹 ${n}`),
-    ...added.knowledge.map((t) => `🧠 ${t}`),
+    ...added.seeds.map((t) => `${tag('🌱', '씨앗')}${t}`),
+    ...added.people.map((n) => `${tag('🧑', '인물')}${n}`),
+    ...added.allies.map((n) => `${tag('🤝', '동료')}${n}`),
+    ...added.items.map((n) => `${tag('🎒', '물건')}${n}`),
+    ...added.places.map((n) => `${tag('🗺', '장소')}${n}`),
+    ...added.enemies.map((n) => `${tag('👹', '적')}${n}`),
+    ...added.knowledge.map((t) => `${tag('🧠', '정보')}${t}`),
   ];
-  if (parts.length) addBlock('world', parts.join(' · '));
+  if (parts.length) addBlock('world', fmt().world(parts));
 }
 
 // ---------- 상태창 ----------
@@ -221,13 +321,14 @@ function renderStatus(s) {
   $('hp-text').textContent = `${s.hp}/${s.maxHp}`;
   $('hp-bar').style.width = `${(s.hp / s.maxHp) * 100}%`;
   $('hp-bar').className = s.hp <= 3 ? 'low' : '';
-  if (prevHp !== null && s.hp !== prevHp) {
+  if (prevHp !== null && s.hp !== prevHp && !plain()) {
     $('hp-block').classList.remove('flash');
     void $('hp-block').offsetWidth;
     $('hp-block').classList.add('flash');
   }
   prevHp = s.hp;
-  $('stats').replaceChildren(...Object.entries(s.stats).map(([k, v]) => el('span', '', `${STAT[k][0]} ${STAT[k][1]} ${v}`)));
+  $('statusbar').textContent = `⑂ main    ⊗ 0  ⚠ ${s.maxHp - s.hp}    Ln ${s.turn + 1}, Col 1    UTF-8    TypeScript`;
+  $('stats').replaceChildren(...Object.entries(s.stats).map(([k, v]) => el('span', '', `${ic(STAT[k][0])}${STAT[k][1]} ${v}`)));
   $('job').textContent = s.job?.name ?? '없음';
   $('specialty').textContent = s.job?.specialty ? `특기: ${s.job.specialty}` : '';
   $('traits').replaceChildren(...s.traits.map((t) => {
@@ -237,7 +338,7 @@ function renderStatus(s) {
   }));
   $('goal').textContent = s.goal;
   $('location').textContent = s.location.name;
-  $('exits').textContent = `출구: ${s.location.exits.map((x) => x.name + (x.locked ? ' 🔒' : '')).join(' / ') || '없음'}`;
+  $('exits').textContent = `출구: ${s.location.exits.map((x) => x.name + (x.locked ? (plain() ? ' (잠김)' : ' 🔒') : '')).join(' / ') || '없음'}`;
   $('visited').replaceChildren(...s.visited.flatMap((v, i) => {
     const span = withTip(el('span', '', v.name), v.turn === 0 ? '시작 장소' : v.turn ? `${v.turn}턴에 처음 방문` : '');
     return i ? [document.createTextNode(' · '), span] : [span];
@@ -255,24 +356,26 @@ function renderItems(s) {
 
 function renderWorld(s) {
   listOrEmpty($('people'), s.people.map((p) => {
-    const li = el('li', p.ally ? 'ally' : '', `${p.ally ? '🤝 ' : ''}${p.name}${p.remote ? ' (원격)' : p.here ? ' (여기)' : ''}`);
+    const allyMark = p.ally ? (plain() ? '(동료) ' : '🤝 ') : '';
+    const li = el('li', p.ally ? 'ally' : '', `${allyMark}${p.name}${p.remote ? ' (원격)' : p.here ? ' (여기)' : ''}`);
     return withTip(li, [p.description, origin(p.met)].filter(Boolean).join('\n'));
   }), '아직 없음');
   listOrEmpty($('seeds'), s.seeds.map((sd) => {
     const bloomed = sd.status === 'bloomed';
-    const li = el('li', bloomed ? 'bloomed' : '', `${bloomed ? '🦋' : '🧵'} ${sd.text}`);
+    const mark = plain() ? (bloomed ? '✓' : '·') : (bloomed ? '🦋' : '🧵');
+    const li = el('li', bloomed ? 'bloomed' : '', `${mark} ${sd.text}`);
     const lines = [`${sd.turn}턴: “${sd.input}”`];
     if (bloomed) lines.push(`${sd.bloomTurn}턴에 되돌아옴${sd.outcome ? ` → ${sd.outcome}` : ''}`);
     else lines.push('언젠가 되돌아올지도…');
-    if (sd.fate) lines.push(`운명: ${FATE[sd.fate]}`);
+    if (sd.fate) lines.push(`운명: ${ic(FATE[sd.fate][0])}${FATE[sd.fate][1]}`);
     return withTip(li, lines.join('\n'));
   }), '아직 없음');
 }
 
 function renderHistory(s) {
   listOrEmpty($('history'), s.history.map((h) => {
-    const icon = GRADE[h.result.grade]?.[0] ?? '';
-    const li = withTip(el('li', '', `${h.turn}턴 ${icon} ${h.input}`), h.narration.slice(0, 300));
+    const mark = plain() ? CODE_GRADE[h.result.grade] ?? '' : GRADE[h.result.grade]?.[0] ?? '';
+    const li = withTip(el('li', '', `${h.turn}턴 ${mark} ${h.input}`), h.narration.slice(0, 300));
     li.addEventListener('click', () => {
       document.querySelector(`.player[data-turn="${h.turn}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
@@ -306,15 +409,17 @@ function showEnding(s) {
   ended = true;
   setBusy(true);
   const box = addBlock('ending');
+  const [icon, label] = ENDING[s.ending];
   const tone = s.endingTone ? ` — ${TONE[s.endingTone.tone]}` : '';
-  box.append(el('h3', '', `${ENDING[s.ending]}${tone}`));
+  box.append(el('h3', '', `${ic(icon)}${label}${tone}`));
   if (s.endingTone?.title) box.append(el('p', '', `『${s.endingTone.title}』`));
   if (s.seeds.length) {
     box.append(el('div', 'label', '뿌린 씨앗들'));
     const ul = el('ul', 'list');
     for (const sd of s.seeds) {
       const result = sd.status === 'bloomed' ? (sd.outcome || '되돌아왔다') : '끝내 돌아오지 않았다';
-      ul.append(el('li', '', `${FATE[sd.fate] ?? ''} ${sd.turn}턴 “${sd.text}” — ${result}`));
+      const fate = FATE[sd.fate] ? `${ic(FATE[sd.fate][0])}${FATE[sd.fate][1]} ` : '';
+      ul.append(el('li', '', `${fate}${sd.turn}턴 “${sd.text}” — ${result}`));
     }
     box.append(ul);
   }
@@ -329,7 +434,7 @@ function showEnding(s) {
 }
 
 function addPlayerBlock(input, turn) {
-  const block = addBlock('player', `▶ ${input}`);
+  const block = addBlock('player', fmt().player(input));
   block.dataset.turn = turn;
   return block;
 }
@@ -342,11 +447,12 @@ function enterGame(s) {
   prevInventory = s.inventory.map((i) => i.name);
   prevHp = s.hp;
   prevCounts = null;
-  addBlock('intro', s.premise);
-  if (s.job) addBlock('intro', `🧑 직업: ${s.job.name}${s.job.description ? ` — ${s.job.description}` : ''}`);
+  const f = fmt();
+  addBlock('intro', f.intro(s.premise));
+  if (s.job) addBlock('intro', f.intro(`${ic('🧑')}직업: ${s.job.name}${s.job.description ? ` — ${s.job.description}` : ''}`));
   if (s.traits.length) {
     const names = (good) => s.traits.filter((t) => t.good === good).map((t) => t.name).join(', ');
-    addBlock('intro', `🎭 성격: ${names(true)} / ${names(false)}`);
+    addBlock('intro', f.intro(`${ic('🎭')}성격: ${names(true)} / ${names(false)}`));
   }
   if (!s.history.length) addBlock('narration', s.location.description);
   for (const h of s.history) {
@@ -363,7 +469,7 @@ function enterGame(s) {
 async function playTurn(input) {
   setBusy(true);
   addPlayerBlock(input, lastTurn + 1);
-  const thinking = addBlock('thinking', '🤔 판정관이 행동을 살피는 중...');
+  const thinking = addBlock('thinking', fmt().thinking);
   let queue = Promise.resolve();
   let textEl = null;
   let epilogueEl = null;
@@ -389,7 +495,7 @@ async function playTurn(input) {
     } else if (ev.type === 'state') {
       renderState(ev.state);
     } else if (ev.type === 'error') {
-      addBlock('error', `⚠ ${ev.message}`);
+      addBlock('error', `${ic('⚠')}${ev.message}`);
     }
   };
   try {
@@ -416,7 +522,7 @@ async function playTurn(input) {
     await queue;
   } catch (err) {
     thinking.remove();
-    addBlock('error', `⚠ ${err.message}`);
+    addBlock('error', `${ic('⚠')}${err.message}`);
   }
   setBusy(false);
 }
@@ -427,7 +533,7 @@ function setStartDisabled(disabled) {
 
 async function startGame(genre) {
   setStartDisabled(true);
-  $('loading').textContent = '🌍 AI가 세계를 만드는 중... (첫 실행은 모델을 깨우느라 1~2분 걸릴 수 있어요)';
+  $('loading').textContent = `${ic('🌍')}AI가 세계를 만드는 중... (첫 실행은 모델을 깨우느라 1~2분 걸릴 수 있어요)`;
   $('loading').hidden = false;
   try {
     enterGame(await api('/api/new', { genre, job: $('job-input').value.trim() }));
@@ -450,6 +556,7 @@ async function init() {
   }
 }
 
+document.querySelectorAll('.theme-choice').forEach((b) => b.addEventListener('click', () => applyTheme(b.dataset.themeChoice)));
 document.querySelectorAll('.genre').forEach((b) => b.addEventListener('click', () => startGame(b.dataset.genre)));
 $('custom-form').addEventListener('submit', (e) => {
   e.preventDefault();
@@ -471,4 +578,5 @@ $('input-form').addEventListener('submit', (e) => {
   playTurn(input);
 });
 
+applyTheme(loadTheme());
 init();
