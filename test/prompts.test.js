@@ -139,10 +139,19 @@ test('narrateMessages gives a butterfly directive tied to the goal when a seed b
   const user = narrateMessages(state, '둘러본다', look, result).at(-1).content;
   assert.match(user, /\[나비효과\].*2턴.*버튼을 눌렀다/s);
   assert.match(user, /이야기에 없던 위기/);
+  assert.match(user, /반드시 이번 장면에서 분명한 불이익/);
   assert.match(user, /최종 목표/);
+  assert.match(narrateMessages(state, '둘러본다', look, result)[0].content, /지시 표시는 본문에 쓰지 않고/);
+  assert.match(checkMessages('x', 'y')[0].content, /지시의 방향과 반대로/);
   const facts = narrationFacts(state, '둘러본다', result);
   assert.match(facts, /\[나비효과\]/);
   assert.match(facts, /\[배경\] 당신은 버려진 성당에 들어섰다\./);
+  result.bloom = { kind: 'due', seeds: [{ id: 'S2', text: '구조 요청을 보냈다', turn: 3, fate: 'twist', twistAs: 'bane' }] };
+  const twisted = narrateMessages(state, '둘러본다', look, result).at(-1).content;
+  assert.match(twisted, /선의로 한 일이 해가 되어/);
+  assert.match(twisted, /분명한 불이익/);
+  result.bloom.seeds[0].twistAs = 'boon';
+  assert.match(narrateMessages(state, '둘러본다', look, result).at(-1).content, /뜻밖의 도움이 되어/);
   result.bloom = { kind: 'event', seeds: [] };
   assert.match(narrateMessages(state, '둘러본다', look, result).at(-1).content, /새로운 사건/);
 });
@@ -160,6 +169,8 @@ test('chronicleMessages gives narration, verdict and bloomed seed ids; schema co
   const [system, user] = chronicleMessages(state, '둘러본다', result, '벽 틈에서 쪽지가 떨어졌다.');
   assert.match(system.content, /씨앗/);
   assert.match(system.content, /사소해 보여도/);
+  assert.match(system.content, /단순한 시도.*씨앗이 아닙니다/s);
+  assert.match(system.content, /대답하거나 나타난 것만으로는 false/);
   assert.match(user.content, /벽 틈에서 쪽지가 떨어졌다\./);
   assert.match(user.content, /\[판정 결과\]/);
   assert.match(user.content, /S3: 버튼을 눌렀다/);

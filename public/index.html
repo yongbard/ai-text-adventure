@@ -38,27 +38,46 @@
       </form>
     </section>
     <aside class="panel">
-      <div class="block" id="hp-block">
-        <div class="label">❤ 체력 <span id="hp-text"></span></div>
-        <div class="bar"><div id="hp-bar"></div></div>
-      </div>
-      <div class="block" id="stats"></div>
-      <div class="block">
-        <div class="label">🧑 직업</div>
-        <div id="job"></div>
-        <div id="specialty" class="small"></div>
-      </div>
-      <div class="block"><div class="label">🎭 성격</div><ul id="traits"></ul></div>
-      <div class="block"><div class="label">🎯 목표</div><div id="goal" class="small"></div></div>
-      <div class="block">
-        <div class="label">📍 현재 위치</div>
-        <div id="location"></div>
-        <div id="exits" class="small"></div>
-      </div>
-      <div class="block"><div class="label">🎒 소지품</div><ul id="inventory"></ul></div>
-      <div class="block"><div class="label">🗺 가본 곳</div><div id="visited" class="small"></div></div>
+      <nav class="tabs">
+        <button data-tab="status" class="active">상태</button>
+        <button data-tab="items">소지품·지식</button>
+        <button data-tab="world">인물·실타래</button>
+        <button data-tab="history">기록</button>
+      </nav>
+      <section class="tab" id="tab-status">
+        <div class="block" id="hp-block">
+          <div class="label">❤ 체력 <span id="hp-text"></span></div>
+          <div class="bar"><div id="hp-bar"></div></div>
+        </div>
+        <div class="block" id="stats"></div>
+        <div class="block">
+          <div class="label">🧑 직업</div>
+          <div id="job"></div>
+          <div id="specialty" class="small"></div>
+        </div>
+        <div class="block"><div class="label">🎭 성격</div><ul id="traits" class="list"></ul></div>
+        <div class="block"><div class="label">🎯 목표</div><div id="goal" class="small"></div></div>
+        <div class="block">
+          <div class="label">📍 현재 위치</div>
+          <div id="location"></div>
+          <div id="exits" class="small"></div>
+        </div>
+        <div class="block"><div class="label">🗺 가본 곳</div><div id="visited" class="small"></div></div>
+      </section>
+      <section class="tab" id="tab-items" hidden>
+        <div class="block"><div class="label">🎒 소지품</div><ul id="inventory" class="list"></ul></div>
+        <div class="block"><div class="label">🧠 알게 된 것</div><ul id="knowledge" class="list"></ul></div>
+      </section>
+      <section class="tab" id="tab-world" hidden>
+        <div class="block"><div class="label">🧑 알게 된 인물</div><ul id="people" class="list"></ul></div>
+        <div class="block"><div class="label">🧵 이야기 실타래</div><ul id="seeds" class="list"></ul></div>
+      </section>
+      <section class="tab" id="tab-history" hidden>
+        <ol id="history" class="list history"></ol>
+      </section>
     </aside>
   </div>
+  <div id="tip" class="tip" hidden></div>
   <script type="module" src="app.js"></script>
 </body>
 </html>

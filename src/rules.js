@@ -412,7 +412,7 @@ export function pickBlooms(state) {
       s.status = 'bloomed';
       s.bloomTurn = state.turn;
     }
-    return { kind, seeds: list.map((s) => ({ id: s.id, text: s.text, turn: s.turn, fate: s.fate })) };
+    return { kind, seeds: list.map((s) => ({ id: s.id, text: s.text, turn: s.turn, fate: s.fate, twistAs: s.twistAs ?? null })) };
   };
   if (state.player.location_id === state.goal_location_id) {
     const finale = planted.filter((s) => s.finale);
@@ -427,7 +427,7 @@ export function pickBlooms(state) {
 // 화면·저장용 결과에서 씨앗의 운명을 뺀다
 export function sanitizeResult(result) {
   if (!result.bloom) return result;
-  return { ...result, bloom: { ...result.bloom, seeds: result.bloom.seeds.map(({ fate, ...rest }) => rest) } };
+  return { ...result, bloom: { ...result.bloom, seeds: result.bloom.seeds.map(({ fate, twistAs, ...rest }) => rest) } };
 }
 
 // 기록관이 준 raw를 한도·중복·판정 규칙에 맞춰 장부에 반영한다
@@ -440,15 +440,25 @@ export function applyChronicle(state, raw, { turn, input, grade, rng }) {
   const named = (v, n) => (Array.isArray(v) ? v : []).filter((o) => text(o?.name)).slice(0, n);
   const taken = (name) => [...state.items, ...state.npcs, ...state.enemies, ...state.locations].some((e) => e.name === name);
 
-  for (const t of strings(raw.new_seeds, LIMITS.seedsPerTurn)) {
+  // 씨앗은 문자열이나 { text, intent: good|bad|neutral }
+  const seeds = (Array.isArray(raw.new_seeds) ? raw.new_seeds : [])
+    .map((s) => (typeof s === 'string' ? { text: text(s), intent: 'neutral' } : { text: text(s?.text), intent: s?.intent }))
+    .filter((s) => s.text)
+    .slice(0, LIMITS.seedsPerTurn);
+  for (const { text: t, intent: rawIntent } of seeds) {
     if (state.seeds.filter((s) => s.status === 'planted').length >= LIMITS.seedsPlanted) break;
     if (state.seeds.some((s) => s.text === t)) continue;
+    const intent = ['good', 'bad'].includes(rawIntent) ? rawIntent : 'neutral';
     const r = rng();
     const fate = r < 0.35 ? 'boon' : r < 0.7 ? 'bane' : 'twist';
     const finale = rng() < 0.3;
+    const ripen = finale ? null : turn + 3 + Math.floor(rng() * 8);
+    // 반전: 선의는 해로, 악의는 도움으로. 중립은 동전 던지기
+    let twistAs = null;
+    if (fate === 'twist') twistAs = intent === 'good' ? 'bane' : intent === 'bad' ? 'boon' : rng() < 0.5 ? 'boon' : 'bane';
     state.seeds.push({
-      id: nextId(state, 'S'), text: t, turn, input, fate, finale,
-      ripen: finale ? null : turn + 3 + Math.floor(rng() * 8), status: 'planted', bloomTurn: null, outcome: '',
+      id: nextId(state, 'S'), text: t, turn, input, fate, twistAs, intent, finale, ripen,
+      status: 'planted', bloomTurn: null, outcome: '',
     });
     added.seeds.push(t);
   }

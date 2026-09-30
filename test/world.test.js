@@ -17,7 +17,7 @@ test('pickBlooms: the most overdue seed blooms, one per turn', () => {
   const s = start();
   s.turn = 6;
   s.seeds.push(seed({ id: 'S1', ripen: 5 }), seed({ id: 'S2', ripen: 4, fate: 'bane' }), seed({ id: 'S3', ripen: 9 }));
-  assert.deepEqual(pickBlooms(s), { kind: 'due', seeds: [{ id: 'S2', text: '씨앗', turn: 1, fate: 'bane' }] });
+  assert.deepEqual(pickBlooms(s), { kind: 'due', seeds: [{ id: 'S2', text: '씨앗', turn: 1, fate: 'bane', twistAs: null }] });
   assert.deepEqual([s.seeds[1].status, s.seeds[1].bloomTurn], ['bloomed', 6]);
   assert.equal(pickBlooms(s).seeds[0].id, 'S1');
   assert.equal(pickBlooms(s), null);
@@ -64,6 +64,22 @@ test('applyChronicle plants seeds with fate and timing from the rng (morality-bl
       ['깡패 두목을 때렸다', 'twist', false, 5, 'planted', 2, '입력'],
     ],
   );
+});
+
+test('twist seeds resolve to the opposite of the intent (neutral → coin flip)', () => {
+  const s = start();
+  // 운명 0.8(반전), 결전용 아님 0.9, 때 0.0 순으로 소비, 중립이면 마지막 값으로 동전 던지기
+  const twist = (intent, flip) => {
+    applyChronicle(s, { new_seeds: [{ text: `${intent} 행동 ${flip}`, intent }] },
+      { turn: 1, input: '', grade: 'success', rng: seq(0.8, 0.9, 0.0, flip) });
+    return s.seeds.at(-1);
+  };
+  assert.deepEqual([twist('good').intent, s.seeds.at(-1).twistAs], ['good', 'bane']);
+  assert.equal(twist('bad').twistAs, 'boon');
+  assert.equal(twist('neutral', 0.2).twistAs, 'boon');
+  assert.equal(twist('neutral', 0.7).twistAs, 'bane');
+  applyChronicle(s, { new_seeds: [{ text: '평범한 행동', intent: 'weird' }] }, { turn: 1, input: '', grade: 'success', rng: seq(0.1, 0.9, 0.0) });
+  assert.deepEqual([s.seeds.at(-1).intent, s.seeds.at(-1).twistAs], ['neutral', null]);
 });
 
 test('applyChronicle adds people, allies, items, places, enemies, knowledge with limits', () => {
@@ -151,8 +167,15 @@ test('migrateState upgrades a v1.2 save', () => {
   assert.equal(m.history[0].turn, 1);
 });
 
+test('pickBlooms passes twistAs to the narrator', () => {
+  const s = start();
+  s.turn = 5;
+  s.seeds.push(seed({ fate: 'twist', twistAs: 'bane', ripen: 5 }));
+  assert.deepEqual(pickBlooms(s).seeds[0], { id: 'S1', text: '씨앗', turn: 1, fate: 'twist', twistAs: 'bane' });
+});
+
 test('sanitizeResult hides seed fates', () => {
-  const r = { grade: 'success', bloom: { kind: 'due', seeds: [{ id: 'S1', text: 't', turn: 1, fate: 'bane' }] } };
+  const r = { grade: 'success', bloom: { kind: 'due', seeds: [{ id: 'S1', text: 't', turn: 1, fate: 'bane', twistAs: null }] } };
   assert.deepEqual(sanitizeResult(r).bloom.seeds, [{ id: 'S1', text: 't', turn: 1 }]);
   assert.equal(r.bloom.seeds[0].fate, 'bane', 'original untouched');
   assert.deepEqual(sanitizeResult({ grade: 'success' }), { grade: 'success' });
