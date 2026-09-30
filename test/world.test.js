@@ -11,7 +11,26 @@ const seed = (o) => ({
   status: 'planted', bloomTurn: null, outcome: '', ...o,
 });
 const seq = (...values) => () => (values.length ? values.shift() : 0.5);
-const empty = { seeds: [], knowledge: [], people: [], allies: [], items: [], places: [], enemies: [] };
+const empty = { seeds: [], knowledge: [], people: [], allies: [], items: [], places: [], enemies: [], statuses: [] };
+
+test('applyChronicle adds temporary statuses with limits, replacing same names', () => {
+  const s = start();
+  const added = applyChronicle(s, {
+    new_statuses: [
+      { name: '아드레날린', effect: 'str+3', turns: 9 },
+      { name: '부상', effect: 'dex-1', turns: 3 },
+      { name: '세 번째', effect: 'int+1', turns: 1 },
+    ],
+  }, { turn: 2, input: '', grade: 'critical', rng: seq() });
+  assert.deepEqual(s.player.statuses, [
+    { name: '아드레날린', stat: 'str', delta: 3, turns: 5, turn: 2 },
+    { name: '부상', stat: 'dex', delta: -1, turns: 3, turn: 2 },
+  ]);
+  assert.deepEqual(added.statuses, ['아드레날린(힘 +3, 5턴)', '부상(민첩 -1, 3턴)']);
+  applyChronicle(s, { new_statuses: [{ name: '부상', effect: 'dex-2', turns: 2 }, { name: '이상함', effect: 'luck+1', turns: 2 }] },
+    { turn: 3, input: '', grade: 'failure', rng: seq() });
+  assert.deepEqual(s.player.statuses.map((x) => [x.name, x.delta, x.turns]), [['아드레날린', 3, 5], ['부상', -2, 2]]);
+});
 
 test('pickBlooms: the most overdue seed blooms, one per turn', () => {
   const s = start();
@@ -112,7 +131,7 @@ test('applyChronicle adds people, allies, items, places, enemies, knowledge with
   assert.deepEqual(tunnel.exits, [{ to: 'hall', requires_item_id: null }]);
   assert.ok(s.locations.find((l) => l.id === 'hall').exits.some((x) => x.to === tunnel.id));
   assert.equal(s.player.location_id, 'hall', 'new places are not entered');
-  assert.deepEqual(s.enemies.find((e) => e.name === '들개'), { id: s.enemies.at(-1).id, name: '들개', location_id: 'hall', hp: 3, origin: 'story' });
+  assert.deepEqual(s.enemies.find((e) => e.name === '들개'), { id: s.enemies.at(-1).id, name: '들개', location_id: 'hall', hp: 3, max_hp: 3, origin: 'story' });
 });
 
 test('applyChronicle: items are not obtained on failure; junk and duplicates ignored; empty place described', () => {
@@ -155,6 +174,9 @@ test('updateStagnation resets on progress, otherwise counts up', () => {
 test('migrateState upgrades a v1.2 save', () => {
   const s = start();
   for (const k of ['seeds', 'knowledge', 'seq', 'stagnation', 'visitedTurns', 'endingTone']) delete s[k];
+  delete s.player.streak;
+  delete s.player.statuses;
+  for (const e of s.enemies) delete e.max_hp;
   for (const i of s.items) delete i.acquired;
   s.player.traits = [{ id: 'b25', name: '고소공포증', good: false, group: 'heights', description: '', effects: { action: { move: -10 } } }];
   s.history = [{ input: 'a', result: {}, narration: 'n' }];
@@ -165,6 +187,7 @@ test('migrateState upgrades a v1.2 save', () => {
   assert.equal(m.items.find((i) => i.id === 'dagger').acquired.how, '이전 버전에서 획득');
   assert.equal(m.items.find((i) => i.id === 'grail').acquired, null);
   assert.equal(m.history[0].turn, 1);
+  assert.deepEqual([m.player.streak, m.player.statuses, m.enemies[1].max_hp], [0, [], 6]);
 });
 
 test('pickBlooms passes twistAs to the narrator', () => {

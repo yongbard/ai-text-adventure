@@ -189,6 +189,11 @@ kbd { font-family: var(--mono); border: 1px solid var(--line); border-radius: 4p
 #visited span[data-tip] { cursor: help; border-bottom: 1px dotted var(--line); }
 #seeds li.bloomed { color: var(--muted); }
 #people li.ally { color: var(--ok); }
+#stats .buffed { color: var(--ok); }
+#stats .debuffed { color: var(--fail); }
+#here li.pick { cursor: pointer; text-decoration: underline dotted; }
+#here li.pick:hover { color: var(--accent); }
+#here li.enemy-line { color: var(--fail); }
 .history li { cursor: pointer; font-size: .9rem; border-bottom: 1px solid var(--line); }
 .history li:hover { color: var(--accent); }
 .tabs { display: flex; gap: 4px; margin: -8px -8px 16px; flex-wrap: wrap; }

@@ -13,6 +13,12 @@ const TONE = { light: '빛의 결말', gray: '회색의 결말', shadow: '그림
 const FATE = { boon: ['🌱', '은혜'], bane: ['🔥', '재앙'], twist: ['🎭', '반전'] };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const sign = (n) => (n > 0 ? `+${n}` : `${n}`);
+// 을/를: 마지막 글자 받침 유무
+function objectJosa(word) {
+  const code = word.trim().slice(-1).charCodeAt(0) - 0xac00;
+  if (code < 0 || code > 11171) return '을(를)';
+  return code % 28 ? '을' : '를';
+}
 
 // ---------- 테마 ----------
 const THEMES = {
@@ -60,7 +66,7 @@ function fmt() {
       thinking: '// running...',
       rollHead: (r) => `check("${STAT[r.stat][1]}", { need: ${r.required}, have: ${r.statValue} }); // ${r.chance}%`,
       rolling: (n) => `→ ${n}`,
-      rollResult: (r) => `→ ${r.roll}  ${CODE_GRADE[r.grade]}`,
+      rollResult: (r) => `→ ${r.roll}  ${CODE_GRADE[r.grade]}  // need <= ${r.chance}`,
       simple: (r) => (r.kind === 'impossible' ? `// SKIP: ${r.reason}` : '// ok'),
       bloom: (s) => `// TODO(${s.turn}턴): “${s.text}” 되돌아옴`,
       event: '// WARN: 예상치 못한 변경',
@@ -74,7 +80,7 @@ function fmt() {
       thinking: '생각하는 중…',
       rollHead: (r) => `● Roll(${STAT[r.stat][1]} 필요 ${r.required} · 현재 ${r.statValue}, ${r.chance}%)`,
       rolling: (n) => `⎿  ${n}…`,
-      rollResult: (r) => `⎿  ${r.roll} → ${GRADE[r.grade][1]}`,
+      rollResult: (r) => `⎿  주사위 ${r.roll} → ${GRADE[r.grade][1]} (${r.chance} 이하가 나와야 성공)`,
       simple: (r) => (r.kind === 'impossible' ? `● Check\n  ⎿  불가능: ${r.reason}` : '● Check\n  ⎿  자동 성공'),
       bloom: (s) => `● Recall(${s.turn}턴)\n  ⎿  “${s.text}”`,
       event: '● Event\n  ⎿  새로운 전개',
@@ -87,7 +93,7 @@ function fmt() {
     thinking: '🤔 판정관이 행동을 살피는 중...',
     rollHead: (r) => `${difficulty(r.chance)} · 성공 확률 ${r.chance}%`,
     rolling: (n) => `🎲 ${n}`,
-    rollResult: (r) => `${GRADE[r.grade][0]} ${GRADE[r.grade][1]} · 주사위 ${r.roll}`,
+    rollResult: (r) => `${GRADE[r.grade][0]} ${GRADE[r.grade][1]} · 주사위 ${r.roll} (${r.chance} 이하가 나와야 성공)`,
     simple: (r) => (r.kind === 'impossible' ? `${GRADE.impossible[0]} 불가능 — ${r.reason}` : '✔ 자동 성공'),
     bloom: (s) => `🦋 나비효과 — ${s.turn}턴의 “${s.text}”`,
     event: '🦋 무언가가 움직이기 시작합니다…',
@@ -225,10 +231,12 @@ function difficulty(chance) {
 
 function rollDetail(r) {
   const stat = STAT[r.stat][1];
-  const parts = [`필요 ${stat} ${r.required} · 내 ${stat} ${r.statValue}`];
+  const mods = (r.statusMods ?? []).map((m) => `${m.name} ${sign(m.delta)}`).join(', ');
+  const parts = [`필요 ${stat} ${r.required} · 내 ${stat} ${r.statValue}${mods ? ` (${mods})` : ''}`];
   if (r.itemBonus) parts.push(`아이템 +${r.itemBonus}%`);
   for (const t of r.traitsApplied ?? []) parts.push(`${t.name} ${sign(t.value)}%`);
   if (r.allyBonus) parts.push(`동료 +${r.allyBonus}%`);
+  if (r.pityBonus) parts.push(`오기 +${r.pityBonus}%`);
   const text = parts.join(' · ');
   return theme === 'code' ? `// ${text}` : text;
 }
@@ -306,6 +314,7 @@ function showWorld(added) {
     ...added.places.map((n) => `${tag('🗺', '장소')}${n}`),
     ...added.enemies.map((n) => `${tag('👹', '적')}${n}`),
     ...added.knowledge.map((t) => `${tag('🧠', '정보')}${t}`),
+    ...(added.statuses ?? []).map((t) => `${tag('✨', '상태')}${t}`),
   ];
   if (parts.length) addBlock('world', fmt().world(parts));
 }
@@ -328,7 +337,26 @@ function renderStatus(s) {
   }
   prevHp = s.hp;
   $('statusbar').textContent = `⑂ main    ⊗ 0  ⚠ ${s.maxHp - s.hp}    Ln ${s.turn + 1}, Col 1    UTF-8    TypeScript`;
-  $('stats').replaceChildren(...Object.entries(s.stats).map(([k, v]) => el('span', '', `${ic(STAT[k][0])}${STAT[k][1]} ${v}`)));
+  $('stats').replaceChildren(...Object.entries(s.stats).map(([k, v]) => {
+    const diff = s.baseStats ? v - s.baseStats[k] : 0;
+    return el('span', diff ? (diff > 0 ? 'buffed' : 'debuffed') : '', `${ic(STAT[k][0])}${STAT[k][1]} ${v}${diff ? ` (${sign(diff)})` : ''}`);
+  }));
+  const statuses = s.statuses ?? [];
+  $('statuses-block').hidden = !statuses.length;
+  $('statuses').replaceChildren(...statuses.map((st) => el('li', '', `${st.name} · ${st.summary} (${st.turns}턴 남음)`)));
+  const here = s.here ?? { items: [], enemies: [], people: [] };
+  listOrEmpty($('here'), [
+    ...here.enemies.map((e) => el('li', 'enemy-line', `${plain() ? '적' : '⚔'} ${e.name} — ${e.condition}`)),
+    ...here.people.map((n) => el('li', '', `${plain() ? '인물' : '🧑'} ${n}`)),
+    ...here.items.map((i) => {
+      const li = withTip(el('li', 'pick', `${plain() ? '물건' : '🎒'} ${i.name}`), `${i.description}\n클릭하면 줍기 명령을 입력합니다`);
+      li.addEventListener('click', () => {
+        $('action-input').value = `${i.name}${objectJosa(i.name)} 줍는다`;
+        $('action-input').focus();
+      });
+      return li;
+    }),
+  ], '특별히 보이는 것 없음');
   $('job').textContent = s.job?.name ?? '없음';
   $('specialty').textContent = s.job?.specialty ? `특기: ${s.job.specialty}` : '';
   $('traits').replaceChildren(...s.traits.map((t) => {

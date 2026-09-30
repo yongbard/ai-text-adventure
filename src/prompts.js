@@ -1,6 +1,6 @@
 import {
   currentLocation, exitsOf, isLocked, inventoryItems, itemsHere, enemiesHere, npcsHere, remoteNpcs, allies, matchEntity,
-  GRADE_LABEL, STAT_LABEL, ENDING_LABEL,
+  enemyCondition, GRADE_LABEL, STAT_LABEL, ENDING_LABEL,
 } from './rules.js';
 
 const S = { type: 'string' };
@@ -77,7 +77,7 @@ export function sceneFacts(state) {
     `현재 장소: ${loc.name} — ${loc.description || '(아직 묘사되지 않은 곳)'}`,
     `출구: ${list(exitsOf(state).map((x) => x.location.name + (isLocked(state, x) ? ' (잠김)' : '')))}`,
     `이곳의 아이템: ${list(itemsHere(state).map((i) => i.name))}`,
-    `이곳의 적: ${list(enemiesHere(state).map((e) => e.name))}`,
+    `이곳의 적: ${list(enemiesHere(state).map((e) => `${e.name}(${enemyCondition(e)})`))}`,
     `이곳의 인물: ${list(npcsHere(state).map((n) => n.name))}`,
     `원격으로 연결된 인물: ${list(remoteNpcs(state).map((n) => n.name))}`,
     `소지품: ${list(inventoryItems(state).map((i) => i.name))}`,
@@ -92,12 +92,12 @@ const INTERPRET_SYSTEM = `당신은 텍스트 어드벤처의 판정관입니다
 - target: 대상의 이름. 목록에 있으면 그 이름을 그대로 씁니다. explore면 찾아갈 곳의 이름. 없으면 "".
 - items_used: 이 행동에 쓰는 소지품 이름. 이미 가진 것만. 없으면 [].
 - trivial: 둘러보기, 대화, 소지품 확인, 위험 없는 이동, 직업 전문 분야의 일상적인 일(예: 프로게이머가 컴퓨터를 켜고 프로그램을 여는 일)처럼 실패할 이유가 없으면 true.
-- required: 이 캐릭터가 이 행동을 해내는 데 필요한 능력치 수준(1~20).
-  기준: 누구나 쉬운 일 2~3, 보통 5, 어려운 일 7~8, 전문가만 가능한 일 10~12, 초인적인 일 15~20.
-  직업·특기·배경에 맞으면 크게 낮추고, 전혀 모르는 분야면 크게 높입니다.
-  예: 서버 구축 — 프로게이머 5, 치킨집 사장 12. 맨몸으로 하늘 날기 — 누구든 20.
+- required: 이 캐릭터가 이 행동을 해내는 데 필요한 능력치 수준(1~15). 캐릭터의 능력치는 보통 2~5입니다.
+  기준: 쉬움 1~2, 보통 3~4, 어려움 5~6, 전문가만 가능한 일 7~8, 초인적인 일 10~15.
+  대부분의 평범한 행동은 보통(3~4)입니다. 직업·특기·배경에 맞으면 낮추고, 전혀 모르는 분야면 높입니다.
+  예: 서버 구축 — 프로게이머 3, 치킨집 사장 8. 맨몸으로 하늘 날기 — 누구든 15.
   플레이어의 실제 능력치 수치와 성격은 고려하지 않습니다(코드가 따로 반영합니다).
-- reason: required를 그렇게 정한 이유 한 문장.
+- reason: 이 행동이 쉽거나 어려운 이유를 이야기 속 상황으로 한 문장(예: "빛이 들지 않는 창고라 구석까지 살피기 어렵다"). 능력치·성격·직업 이름이나 "~이 필요합니다" 같은 규칙 표현은 쓰지 않습니다.
 - stat: 가장 관련 있는 능력치. str(힘: 힘쓰기, 근접 전투), dex(민첩: 등반, 은신, 회피), int(지능: 퍼즐, 설득, 기술, 관찰).
 - item_bonus: 사용하는 소지품이 행동에 도움이 되는 정도(0~20).
 - risk: 실패했을 때의 위험도. low(창피한 정도), medium(가벼운 부상), high(심한 부상), deadly(목숨이 위험).
@@ -106,8 +106,9 @@ const INTERPRET_SYSTEM = `당신은 텍스트 어드벤처의 판정관입니다
 - effect_hp: 이 행동이 성공하면 플레이어의 몸에 직접 생기는 체력 변화(-5~5).
   예: 음식을 먹거나 쉬면 +1~+3, 상처를 치료하면 +2~+4, 독이나 상한 것을 먹으면 -1~-3, 저주나 자해는 -2~-5.
   전투 피해, 실패 피해, 소지품 회복 아이템(heal) 효과는 코드가 처리하므로 그런 경우에만 0.
-- effect_stat: 이 행동이 성공하면 바뀌는 능력치와 변화량(예: "str+1", "int-2"). 바뀌지 않으면 "none".
-  예: 근력 훈련 → "str+1", 곡예·몸풀기 연습 → "dex+1", 공부·명상으로 깨달음 → "int+1", 저주·큰 부상 → 해당 능력치 "-1"~"-2".`;
+- effect_stat: 이 행동이 성공하면 영구히 바뀌는 능력치와 변화량(예: "str+1", "int-2"). 바뀌지 않으면 "none".
+  예: 근력 훈련 → "str+1", 곡예·몸풀기 연습 → "dex+1", 공부·명상·책 읽기로 깨달음 → "int+1", 큰 결심·각성 → 관련 능력치 "+1",
+  저주·독·큰 부상·트라우마 → 해당 능력치 "-1"~"-2". (일시적인 기세나 부상은 기록관이 따로 처리하므로 여기엔 넣지 않습니다.)`;
 
 export function interpretMessages(state, input) {
   return [
@@ -173,6 +174,7 @@ export function narrateMessages(state, input, intent, result) {
 숨겨진 진실(분위기 참고용, 공개 금지): ${state.truth}`;
   const failed = ['failure', 'fumble', 'impossible'].includes(result.grade);
   const traits = (state.player.traits ?? []).map((t) => t.name).join(', ') || '없음';
+  const statuses = (state.player.statuses ?? []).map((s) => s.name).join(', ') || '없음';
   const user = [
     `[판정 결과] ${describeResult(result)}`,
     bloomDirective(state, result.bloom),
@@ -180,7 +182,7 @@ export function narrateMessages(state, input, intent, result) {
       ? '[연출] 판정이 실패했습니다. 정답이나 해결책을 알려주지는 말되, 상황이 조금 변하거나 새로운 무언가가 눈에 띄는 등 이야기가 한 걸음 움직이도록 마무리하세요.'
       : null,
     `[플레이어 입력] ${input}`,
-    `[플레이어] ${jobLine(state)} / 성격: ${traits}`,
+    `[플레이어] ${jobLine(state)} / 성격: ${traits} / 상태: ${statuses}`,
     `[지금 상황]\n${sceneFacts(state)}`,
     allies(state).length ? `[동료] ${allies(state).map((a) => a.name).join(', ')}` : null,
     npc ? `[${npc.name}] ${npc.personality || npc.description || ''} / 아는 것: ${npc.knowledge || '특별히 없음'}` : null,
@@ -281,6 +283,11 @@ export const CHRONICLE_SCHEMA = obj({
   new_items: arr(obj({ name: S, description: S, obtained: B })),
   new_places: arr(obj({ name: S, description: S })),
   new_enemies: arr(obj({ name: S, hp: I })),
+  new_statuses: arr(obj({
+    name: S,
+    effect: oneOf(...['str', 'dex', 'int'].flatMap((s) => ['+1', '+2', '+3', '-1', '-2', '-3'].map((d) => s + d))),
+    turns: I,
+  })),
   current_place_description: S,
 });
 
@@ -291,11 +298,15 @@ const CHRONICLE_SYSTEM = `당신은 텍스트 어드벤처의 기록관입니다
   intent: 남을 돕거나 선의로 한 일이면 "good", 해치거나 이기적·악의적인 일이면 "bad", 그 외는 "neutral".
 - seed_outcomes: [이번에 돌아온 씨앗]이 이번 묘사에서 어떤 결과를 낳았는지 {id, outcome} 한 문장씩.
 - new_knowledge: 앞으로 쓸모 있을 새 단서나 사실(장소, 약점, 비밀, 누군가의 사정 등). 방금 묘사한 행동을 되풀이한 문장은 제외합니다. 대부분의 턴은 0~1개, 최대 3개.
-- new_people: 새로 등장한 인물이나 동물. here는 같은 장소에 있으면 true, 채팅·무전·전화처럼 원격이면 false. ally는 그 인물이 플레이어를 돕겠다고 분명히 약속하거나 행동으로 보였을 때만 true(대답하거나 나타난 것만으로는 false). 최대 2명.
+- 적대적인 존재(좀비, 괴물, 덤벼드는 사람·짐승)는 반드시 new_enemies에 넣고 new_people에는 넣지 않습니다.
+- new_people: 새로 등장한 적대적이지 않은 인물이나 동물. here는 같은 장소에 있으면 true, 채팅·무전·전화처럼 원격이면 false. ally는 그 인물이 플레이어를 돕겠다고 분명히 약속하거나 행동으로 보였을 때만 true(대답하거나 나타난 것만으로는 false). 최대 2명.
 - new_allies: [알고 있는 인물] 중 이번에 플레이어를 돕겠다고 분명히 약속하거나 행동으로 보인 이름.
-- new_items: 새로 등장한 물건. obtained는 플레이어가 손에 넣었으면 true. 최대 2개.
+- new_items: 새로 등장한 물건. obtained는 플레이어가 손에 넣었으면 true. 플레이어가 무언가를 찾거나 챙기려 했고 판정이 성공했다면, 찾아낸 물건은 손에 넣은 것(true)으로 봅니다. 최대 2개.
 - new_places: 새로 발견했지만 아직 들어가지 않은 장소. 최대 1개.
 - new_enemies: 새로 나타난 적대적 존재. hp 1~3. 최대 1개.
+- new_statuses: 묘사에서 플레이어에게 생긴 일시적인 몸·마음 상태. {name, effect, turns}. effect는 "str+2", "dex-1"처럼 능력치와 변화량(±1~3), turns는 지속 턴(1~5).
+  예: 용기를 끌어올림 → 아드레날린 "str+2" 3턴, 다리를 다침 → 부상 "dex-1" 4턴, 겁에 질림 → 공포 "int-1" 2턴, 정신을 가다듬음 → 집중 "int+1" 3턴.
+  대성공·대실패처럼 극적인 결과이거나 플레이어가 마음가짐을 바꾸는 행동이면 특히 기록합니다. 해당 없으면 [], 최대 2개.
 - current_place_description: 현재 장소가 "(아직 묘사되지 않은 곳)"이면 묘사를 바탕으로 1~2문장, 아니면 "".
 해당 없는 항목은 빈 배열이나 ""로 둡니다.`;
 

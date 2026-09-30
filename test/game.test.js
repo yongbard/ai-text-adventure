@@ -239,7 +239,7 @@ test('narration failure falls back to code text', async () => {
   await game.turn('회랑으로 간다', c.emit);
   const text = c.events.find((e) => e.type === 'text').text;
   assert.match(text, /성공/);
-  assert.match(text, /무너진 회랑\(으\)로 이동/);
+  assert.match(text, /무너진 회랑으로 이동/);
   assert.equal(llm.calls.json, 3, 'scenario + interpret + chronicle: fallback text is not checked');
 });
 

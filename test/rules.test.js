@@ -1,21 +1,35 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  computeChance, gradeRoll, thresholds, rollD100, createRng, normalizeIntent, matchEntity,
+  computeChance, gradeRoll, thresholds, rollD100, createRng, normalizeIntent, matchEntity, josa,
 } from '../src/rules.js';
 
-test('computeChance compares my stat with the required stat (10% per point)', () => {
-  assert.equal(computeChance(5, 5), 50);
-  assert.equal(computeChance(5, 4), 40);
-  assert.equal(computeChance(3, 6), 80);
-  assert.equal(computeChance(12, 4), 1, '치킨집 사장의 서버 구축');
+test('computeChance: 60% at equal stats, 10% per point', () => {
+  assert.equal(computeChance(4, 4), 60);
+  assert.equal(computeChance(5, 4), 50);
+  assert.equal(computeChance(2, 4), 80);
+  assert.equal(computeChance(8, 4), 20, '치킨집 사장의 서버 구축');
+  assert.equal(computeChance(15, 4), 1);
 });
 
 test('computeChance adds item (max 20) and other bonuses, clamped to 1..99', () => {
-  assert.equal(computeChance(5, 4, 10), 50);
-  assert.equal(computeChance(5, 5, 50), 70);
-  assert.equal(computeChance(5, 5, 0, -15), 35);
+  assert.equal(computeChance(5, 4, 10), 60);
+  assert.equal(computeChance(5, 5, 50), 80);
+  assert.equal(computeChance(5, 5, 0, -15), 45);
   assert.equal(computeChance(1, 9, 20, 30), 99);
+});
+
+test('josa picks the particle that fits the last syllable', () => {
+  assert.equal(josa('주머니', '이/가'), '가');
+  assert.equal(josa('단검', '이/가'), '이');
+  assert.equal(josa('물약', '을/를'), '을');
+  assert.equal(josa('주머니', '을/를'), '를');
+  assert.equal(josa('성배', '은/는'), '는');
+  assert.equal(josa('회랑', '(으)로'), '으로');
+  assert.equal(josa('창고', '(으)로'), '로');
+  assert.equal(josa('지하실', '(으)로'), '로');
+  assert.equal(josa('Silent_Watcher', '이/가'), '이(가)');
+  assert.equal(josa('Room7', '(으)로'), '(으)로');
 });
 
 test('thresholds expose crit and fumble zones', () => {
@@ -58,12 +72,12 @@ test('normalizeIntent fills defaults and clamps', () => {
     traits: [{ name: ' 달변가 ', effect: 'help' }, { name: '고소공포증', effect: 'weird' }, { effect: 'help' }, null],
   });
   assert.deepEqual(i, {
-    action: 'other', target: null, items_used: ['칼'], trivial: false, required: 20,
+    action: 'other', target: null, items_used: ['칼'], trivial: false, required: 15,
     reason: '', stat: 'dex', item_bonus: 0, risk: 'medium',
     effect_hp: 0, effect_stat: null, effect_stat_delta: 0,
     traits: [{ name: '달변가', effect: 'help' }, { name: '고소공포증', effect: 'help' }],
   });
-  assert.equal(normalizeIntent({}).required, 5);
+  assert.equal(normalizeIntent({}).required, 4);
   assert.equal(normalizeIntent({ action: 'explore' }).action, 'explore');
 });
 

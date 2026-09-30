@@ -113,10 +113,16 @@ test('interpretMessages explains required scale and lists traits and remote peop
   s.npcs.push({ id: 'P1', name: '회색늑대', remote: true, location_id: null, met: { turn: 1 }, description: '채팅 상대' });
   const [system, user] = interpretMessages(s, '옥상으로 올라간다');
   assert.match(system.content, /required/);
-  assert.match(system.content, /치킨집 사장/);
+  assert.match(system.content, /보통 3~4/);
+  assert.match(system.content, /치킨집 사장 8/);
   assert.match(system.content, /explore/);
+  assert.match(system.content, /reason: .*능력치·성격·직업.*쓰지 않습니다/);
   assert.match(user.content, /성격: 고소공포증\(높은 곳만 보면 다리가 풀린다\.\)/);
   assert.match(user.content, /원격으로 연결된 인물: 회색늑대/);
+  const cor = createInitialState(makeScenario());
+  cor.player.location_id = 'corridor';
+  cor.enemies.find((e) => e.id === 'rat').hp = 1;
+  assert.match(interpretMessages(cor, 'x').at(-1).content, /이곳의 적: 거대 쥐\(상처 입음\)/);
 });
 
 test('narrateMessages allows new things, lists seeds without fate, and forbids nothing new only for boss/goal', () => {
@@ -176,8 +182,11 @@ test('chronicleMessages gives narration, verdict and bloomed seed ids; schema co
   assert.match(user.content, /S3: 버튼을 눌렀다/);
   assert.deepEqual(Object.keys(CHRONICLE_SCHEMA.properties), [
     'new_seeds', 'seed_outcomes', 'new_knowledge', 'new_people', 'new_allies', 'new_items', 'new_places', 'new_enemies',
-    'current_place_description',
+    'new_statuses', 'current_place_description',
   ]);
+  assert.match(system.content, /적대적인 존재.*new_enemies/s);
+  assert.match(system.content, /new_statuses/);
+  assert.match(system.content, /아드레날린/);
 });
 
 test('ending tone and epilogue reveal seeds, fates, outcomes and allies', () => {

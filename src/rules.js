@@ -51,10 +51,26 @@ export function rollD100(rng) {
   return Math.floor(rng() * 100) + 1;
 }
 
-// 필요 능력치와 내 능력치의 차이 1당 10%
+// 필요 능력치와 같으면 60%, 차이 1당 10%
 export function computeChance(required, statValue, itemBonus = 0, bonus = 0) {
-  return clamp(Math.round(50 + (statValue - required) * 10 + clamp(itemBonus, 0, 20) + bonus), 1, 99);
+  return clamp(Math.round(60 + (statValue - required) * 10 + clamp(itemBonus, 0, 20) + bonus), 1, 99);
 }
+
+// 마지막 글자의 받침에 맞는 조사. pair는 '이/가', '을/를', '은/는', '(으)로'
+export function josa(word, pair) {
+  const code = String(word).trim().slice(-1).charCodeAt(0) - 0xac00;
+  const hangul = code >= 0 && code <= 11171;
+  if (pair === '(으)로') {
+    if (!hangul) return '(으)로';
+    const jong = code % 28;
+    return jong === 0 || jong === 8 ? '로' : '으로';
+  }
+  const [withFinal, withoutFinal] = pair.split('/');
+  if (!hangul) return `${withFinal}(${withoutFinal})`;
+  return code % 28 ? withFinal : withoutFinal;
+}
+
+const withJosa = (word, pair) => `${word}${josa(word, pair)}`;
 
 export function thresholds(chance, crit = 0, fumble = 0) {
   return {
@@ -86,7 +102,7 @@ export function normalizeIntent(raw = {}) {
     target: text(raw.target) || null,
     items_used: Array.isArray(raw.items_used) ? raw.items_used.map(text).filter(Boolean) : [],
     trivial: raw.trivial === true,
-    required: Math.round(clamp(num(raw.required, 5), 1, 20)),
+    required: Math.round(clamp(num(raw.required, 4), 1, 15)),
     reason: typeof raw.reason === 'string' ? raw.reason : '',
     stat: STATS.includes(raw.stat) ? raw.stat : 'dex',
     item_bonus: Math.round(clamp(num(raw.item_bonus, 0), 0, 20)),
@@ -132,12 +148,15 @@ export function createInitialState(scenario, traits = []) {
   for (const item of rest.items) {
     item.acquired = item.location_id === null ? { turn: 0, input: '', how: '시작 소지품' } : null;
   }
+  for (const enemy of rest.enemies) enemy.max_hp = enemy.hp;
   const state = {
     ...rest,
     player: {
       job: job ?? null,
       traits: structuredClone(traits),
       stats: finalStats,
+      statuses: [],
+      streak: 0,
       hp: maxHp,
       max_hp: maxHp,
       inventory: rest.items.filter((i) => i.location_id === null).map((i) => i.id),
@@ -201,12 +220,34 @@ function markMet(state, turn, input) {
   for (const npc of npcsHere(state)) npc.met ??= { turn, input, how: '만남' };
 }
 
+export function enemyCondition(enemy) {
+  const ratio = enemy.hp / (enemy.max_hp || enemy.hp || 1);
+  if (ratio >= 0.67) return '멀쩡함';
+  if (ratio >= 0.34) return '상처 입음';
+  return '빈사';
+}
+
+// 상태 효과를 반영한 능력치
+export function effectiveStat(state, stat) {
+  const delta = (state.player.statuses ?? []).filter((s) => s.stat === stat).reduce((sum, s) => sum + s.delta, 0);
+  return clamp(state.player.stats[stat] + delta, STAT_MIN, STAT_MAX);
+}
+
+// 이곳의 인물을 공격하면 적이 된다 (기록관이 적을 인물로 잘못 올린 경우도 여기서 바로잡힌다)
+function turnHostile(state, target) {
+  if (matchEntity(enemiesHere(state), target)) return;
+  const npc = matchEntity(npcsHere(state), target);
+  if (!npc) return;
+  state.npcs = state.npcs.filter((n) => n !== npc);
+  state.enemies.push({ id: nextId(state, 'E'), name: npc.name, location_id: npc.location_id, hp: 3, max_hp: 3, origin: 'story' });
+}
+
 function exitTo(state, target) {
   const exit = exitsOf(state).find((x) => matchEntity([x.location], target));
   if (!exit) return null;
   if (isLocked(state, exit)) {
     const key = state.items.find((i) => i.id === exit.requires_item_id);
-    return { ok: false, reason: `${exit.location.name}(으)로 가는 길은 잠겨 있다 (${key?.name ?? '열쇠'} 필요)` };
+    return { ok: false, reason: `${withJosa(exit.location.name, '(으)로')} 가는 길은 잠겨 있다 (${key?.name ?? '열쇠'} 필요)` };
   }
   return { ok: true, targetId: exit.to };
 }
@@ -220,31 +261,34 @@ export function checkFeasibility(state, intent) {
     : intent.items_used;
   for (const name of used) {
     const item = matchEntity(inv, name);
-    if (!item) return { ok: false, reason: `'${name}'을(를) 가지고 있지 않다` };
+    if (!item) return { ok: false, reason: `${withJosa(name, '을/를')} 가지고 있지 않다` };
     itemIds.push(item.id);
   }
   switch (intent.action) {
     case 'move': {
       const exit = exitTo(state, intent.target);
-      if (!exit) return { ok: false, reason: `여기서 '${intent.target ?? '그곳'}'(으)로 가는 길이 없다` };
+      if (!exit) return { ok: false, reason: `여기서 ${withJosa(intent.target ?? '그곳', '(으)로')} 가는 길이 없다` };
       return exit.ok ? { ...exit, itemIds } : exit;
     }
     case 'explore': {
       const exit = exitTo(state, intent.target);
       if (exit) return exit.ok ? { ...exit, itemIds } : exit;
       const known = matchEntity(state.locations, intent.target);
-      if (known) return { ok: false, reason: `여기서 '${known.name}'(으)로 바로 가는 길은 없다` };
+      if (known) return { ok: false, reason: `여기서 ${withJosa(known.name, '(으)로')} 바로 갈 수는 없다` };
       if (storyCount(state.locations) >= LIMITS.places) return { ok: false, reason: '더 이상 새로운 길을 찾을 수 없다' };
       return { ok: true, targetId: null, itemIds, newPlace: intent.target || '이름 없는 곳' };
     }
     case 'take': {
       const item = matchEntity(itemsHere(state), intent.target);
-      if (!item) return { ok: false, reason: `여기에는 '${intent.target ?? '그것'}'이(가) 없다` };
-      return { ok: true, targetId: item.id, itemIds };
+      if (item) return { ok: true, targetId: item.id, itemIds };
+      // 다른 곳에 있는 줄 아는 물건이면 없다, 세상에 없는 물건이면 "뒤져보기" 판정
+      const elsewhere = matchEntity(state.items.filter((i) => !state.player.inventory.includes(i.id)), intent.target);
+      if (elsewhere) return { ok: false, reason: `${withJosa(elsewhere.name, '은/는')} 여기에 없다` };
+      return { ok: true, targetId: null, itemIds, search: true };
     }
     case 'attack': {
       const enemy = matchEntity(enemiesHere(state), intent.target);
-      if (!enemy) return { ok: false, reason: `여기에는 공격할 '${intent.target ?? '대상'}'이(가) 없다` };
+      if (!enemy) return { ok: false, reason: `여기에는 공격할 ${withJosa(intent.target ?? '대상', '이/가')} 없다` };
       return { ok: true, targetId: enemy.id, itemIds };
     }
     case 'use': {
@@ -252,7 +296,7 @@ export function checkFeasibility(state, intent) {
         const held = matchEntity(inv, intent.target);
         if (held) return { ok: true, targetId: held.id, itemIds };
         const known = matchEntity(state.items, intent.target);
-        if (known) return { ok: false, reason: `'${known.name}'을(를) 가지고 있지 않다` };
+        if (known) return { ok: false, reason: `${withJosa(known.name, '을/를')} 가지고 있지 않다` };
       }
       return { ok: true, targetId: itemIds[0] ?? null, itemIds };
     }
@@ -285,7 +329,7 @@ function enterLocation(state, id, turn, input, result) {
     state.visitedTurns[id] = turn;
   }
   markMet(state, turn, input);
-  result.changes.push(`${state.locations.find((l) => l.id === id).name}(으)로 이동`);
+  result.changes.push(`${withJosa(state.locations.find((l) => l.id === id).name, '(으)로')} 이동`);
 }
 
 function connect(state, fromId, toId) {
@@ -351,13 +395,16 @@ export function checkEnding(state) {
 
 export function resolveTurn(prev, intent, rng, input = '') {
   const state = structuredClone(prev);
+  state.player.statuses ??= [];
+  state.player.streak ??= 0;
   const turn = state.turn + 1;
   const mods = traitMods(state.player.traits);
+  if (intent.action === 'attack') turnHostile(state, intent.target);
   const feas = checkFeasibility(state, intent);
   const result = {
     action: intent.action, reason: intent.reason, stat: intent.stat,
-    kind: 'roll', grade: null, required: intent.required, statValue: null,
-    itemBonus: 0, traitBonus: 0, traitsApplied: [], allyBonus: 0,
+    kind: 'roll', grade: null, required: intent.required, statValue: null, statusMods: [],
+    itemBonus: 0, traitBonus: 0, traitsApplied: [], allyBonus: 0, pityBonus: 0,
     chance: null, roll: null, critMax: null, fumbleFrom: null, hpDelta: 0, changes: [],
   };
 
@@ -370,18 +417,23 @@ export function resolveTurn(prev, intent, rng, input = '') {
     result.grade = 'success';
   } else {
     const traits = traitBonus(state.player.traits, intent.traits);
-    result.statValue = state.player.stats[intent.stat];
+    result.statValue = effectiveStat(state, intent.stat);
+    result.statusMods = state.player.statuses.filter((s) => s.stat === intent.stat).map((s) => ({ name: s.name, delta: s.delta }));
     result.itemBonus = feas.itemIds.length ? intent.item_bonus : 0;
     result.traitBonus = traits.total;
     result.traitsApplied = traits.applied;
     result.allyBonus = state.player.location_id === state.goal_location_id ? Math.min(30, allies(state).length * 10) : 0;
-    result.chance = computeChance(intent.required, result.statValue, result.itemBonus, result.traitBonus + result.allyBonus);
+    result.pityBonus = Math.min(30, state.player.streak * 10);
+    result.chance = computeChance(
+      intent.required, result.statValue, result.itemBonus, result.traitBonus + result.allyBonus + result.pityBonus,
+    );
     Object.assign(result, thresholds(result.chance, mods.crit, mods.fumble));
     result.roll = rollD100(rng);
     result.grade = gradeRoll(result.roll, result.chance, mods.crit, mods.fumble);
     state.dice.rolls += 1;
     if (result.grade === 'critical') state.dice.crits += 1;
     if (result.grade === 'fumble') state.dice.fumbles += 1;
+    state.player.streak = result.grade === 'failure' || result.grade === 'fumble' ? state.player.streak + 1 : 0;
   }
 
   if (result.grade === 'success' || result.grade === 'critical') {
@@ -396,6 +448,11 @@ export function resolveTurn(prev, intent, rng, input = '') {
       + (enemiesHere(state).length ? 1 : 0) + mods.damage_taken;
     changeHp(state, -Math.max(0, damage), result);
   }
+
+  // 상태 효과는 턴이 지날 때마다 줄어든다
+  state.player.statuses = state.player.statuses
+    .map((s) => ({ ...s, turns: s.turns - 1 }))
+    .filter((s) => s.turns > 0);
 
   state.turn = turn;
   const changes = result.changes.length ? `, ${result.changes.join(', ')}` : '';
@@ -432,7 +489,7 @@ export function sanitizeResult(result) {
 
 // 기록관이 준 raw를 한도·중복·판정 규칙에 맞춰 장부에 반영한다
 export function applyChronicle(state, raw, { turn, input, grade, rng }) {
-  const added = { seeds: [], knowledge: [], people: [], allies: [], items: [], places: [], enemies: [] };
+  const added = { seeds: [], knowledge: [], people: [], allies: [], items: [], places: [], enemies: [], statuses: [] };
   if (!raw || typeof raw !== 'object') return added;
   const success = grade === 'success' || grade === 'critical';
   const here = state.player.location_id;
@@ -518,13 +575,32 @@ export function applyChronicle(state, raw, { turn, input, grade, rng }) {
   for (const en of named(raw.new_enemies, LIMITS.enemiesPerTurn)) {
     const name = text(en.name);
     if (taken(name) || storyCount(state.enemies) >= LIMITS.enemies) continue;
-    state.enemies.push({ id: nextId(state, 'E'), name, location_id: here, hp: Math.round(clamp(num(en.hp, 2), 1, 3)), origin: 'story' });
+    const hp = Math.round(clamp(num(en.hp, 2), 1, 3));
+    state.enemies.push({ id: nextId(state, 'E'), name, location_id: here, hp, max_hp: hp, origin: 'story' });
     added.enemies.push(name);
+  }
+
+  // 일시적 상태 효과: 한 턴에 2개, 동시에 4개까지, 같은 이름은 덮어씀
+  state.player.statuses ??= [];
+  const statuses = (Array.isArray(raw.new_statuses) ? raw.new_statuses : [])
+    .map((s) => ({ name: text(s?.name), effect: /^(str|dex|int)([+-][123])$/.exec(String(s?.effect ?? '')), turns: s?.turns }))
+    .filter((s) => s.name && s.effect)
+    .slice(0, 2);
+  for (const s of statuses) {
+    const status = {
+      name: s.name, stat: s.effect[1], delta: Number(s.effect[2]), turns: Math.round(clamp(num(s.turns, 3), 1, 5)), turn,
+    };
+    state.player.statuses = [...state.player.statuses.filter((x) => x.name !== s.name), status].slice(-4);
+    added.statuses.push(`${s.name}(${describeStatus(status)}, ${status.turns}턴)`);
   }
 
   const loc = currentLocation(state);
   if (!loc.description && text(raw.current_place_description)) loc.description = text(raw.current_place_description);
   return added;
+}
+
+function describeStatus(status) {
+  return `${STAT_LABEL[status.stat]} ${status.delta > 0 ? '+' : ''}${status.delta}`;
 }
 
 export function hasAdded(added) {
@@ -548,6 +624,9 @@ export function migrateState(state) {
   state.endingTone ??= null;
   state.visitedTurns ??= Object.fromEntries(state.visited.map((id) => [id, null]));
   state.player.job ??= null;
+  state.player.streak ??= 0;
+  state.player.statuses ??= [];
+  for (const enemy of state.enemies) enemy.max_hp ??= Math.max(enemy.hp, 1);
   state.player.traits = (state.player.traits ?? []).map((t) => {
     const def = TRAITS.find((d) => d.id === t.id);
     return def ? structuredClone(def) : { ...t, check: t.check ?? 0 };
@@ -572,7 +651,14 @@ export function publicState(state) {
     maxTurns: MAX_TURNS,
     hp: state.player.hp,
     maxHp: state.player.max_hp,
-    stats: state.player.stats,
+    stats: Object.fromEntries(STATS.map((k) => [k, effectiveStat(state, k)])),
+    baseStats: state.player.stats,
+    statuses: (state.player.statuses ?? []).map((s) => ({ name: s.name, summary: describeStatus(s), turns: s.turns })),
+    here: {
+      items: itemsHere(state).map((i) => ({ name: i.name, description: i.description })),
+      enemies: enemiesHere(state).map((e) => ({ name: e.name, condition: enemyCondition(e) })),
+      people: npcsHere(state).map((n) => n.name),
+    },
     job: state.player.job ?? null,
     traits: (state.player.traits ?? []).map((t) => ({
       name: t.name, description: t.description, good: t.good, summary: describeTrait(t),

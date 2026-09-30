@@ -5,8 +5,8 @@ import {
 } from '../src/rules.js';
 import { makeScenario, fixedRng } from './fixtures.js';
 
-// 기본: 필요 능력치 5 (dex 5 → 50%)
-const intent = (o) => normalizeIntent({ required: 5, ...o });
+// 기본: 필요 능력치 6 (dex 5 → 50%)
+const intent = (o) => normalizeIntent({ required: 6, ...o });
 const start = () => createInitialState(makeScenario());
 const at = (state, locId) => {
   state.player.location_id = locId;
@@ -32,7 +32,71 @@ test('initial state: start inventory with provenance, location, visited, npcs me
   assert.equal(s.player.hp, 15);
   assert.equal(s.player.job.name, '떠돌이 기사');
   assert.deepEqual([s.seeds, s.knowledge, s.stagnation], [[], [], 0]);
+  assert.deepEqual([s.player.streak, s.player.statuses], [0, []]);
   assert.deepEqual(s.player.stats, { str: 4, dex: 5, int: 3 });
+  assert.equal(s.enemies.find((e) => e.id === 'rat').max_hp, 2);
+});
+
+test('taking something that is not in the world becomes a search; known items elsewhere are not here', () => {
+  const search = checkFeasibility(start(), intent({ action: 'take', target: '주머니' }));
+  assert.deepEqual([search.ok, search.search, search.targetId], [true, true, null]);
+  assert.equal(checkFeasibility(start(), intent({ action: 'take', target: '은빛 열쇠' })).reason, '은빛 열쇠는 여기에 없다');
+});
+
+test('impossible reasons use natural particles', () => {
+  const s = start();
+  assert.equal(checkFeasibility(s, intent({ action: 'use', items_used: ['레이저총'] })).reason, '레이저총을 가지고 있지 않다');
+  assert.equal(checkFeasibility(s, intent({ action: 'move', target: '창고' })).reason, '여기서 창고로 가는 길이 없다');
+  assert.equal(checkFeasibility(s, intent({ action: 'attack', target: '용' })).reason, '여기에는 공격할 용이 없다');
+  const cor = at(start(), 'corridor');
+  assert.equal(checkFeasibility(cor, intent({ action: 'move', target: '제단' })).reason, '제단으로 가는 길은 잠겨 있다 (은빛 열쇠 필요)');
+});
+
+test('attacking a person here turns them into an enemy with hp', () => {
+  const s = start();
+  s.npcs.push({ id: 'P1', name: '좀비', location_id: 'hall', origin: 'story', met: { turn: 1 } });
+  const { state, result } = resolveTurn(s, intent({ action: 'attack', target: '좀비', stat: 'str', required: 5 }), fixedRng(20));
+  assert.equal(result.grade, 'success');
+  const zombie = state.enemies.find((e) => e.name === '좀비');
+  assert.deepEqual([zombie.hp, zombie.max_hp, zombie.location_id], [1, 3, 'hall']);
+  assert.equal(state.npcs.some((n) => n.name === '좀비'), false);
+});
+
+test('consecutive failures add 10% each (max 30%) and a success resets the streak', () => {
+  let s = start();
+  const act = intent({ action: 'other', required: 7, risk: 'low' });
+  for (const expected of [0, 10, 20, 30, 30]) {
+    const r = resolveTurn(s, act, fixedRng(90));
+    assert.equal(r.result.pityBonus, expected);
+    s = r.state;
+  }
+  assert.equal(s.player.streak, 5);
+  assert.equal(resolveTurn(s, act, fixedRng(5)).state.player.streak, 0);
+});
+
+test('status effects change the effective stat and expire', () => {
+  const s = start();
+  s.player.statuses = [{ name: '아드레날린', stat: 'str', delta: 2, turns: 2, turn: 0 }];
+  const act = intent({ action: 'other', stat: 'str', required: 5, risk: 'low' });
+  const r1 = resolveTurn(s, act, fixedRng(90));
+  assert.deepEqual([r1.result.statValue, r1.result.chance, r1.result.statusMods], [6, 70, [{ name: '아드레날린', delta: 2 }]]);
+  assert.equal(r1.state.player.statuses[0].turns, 1);
+  const r2 = resolveTurn(r1.state, act, fixedRng(90));
+  assert.equal(r2.result.statValue, 6);
+  assert.deepEqual(r2.state.player.statuses, []);
+  assert.equal(resolveTurn(r2.state, act, fixedRng(90)).result.statValue, 4);
+});
+
+test('publicState shows what is here, enemy condition, effective stats and statuses', () => {
+  const s = at(start(), 'corridor');
+  s.enemies.find((e) => e.id === 'rat').hp = 1;
+  s.player.statuses = [{ name: '부상', stat: 'dex', delta: -1, turns: 3, turn: 1 }];
+  const p = publicState(s);
+  assert.deepEqual(p.here, { items: [], enemies: [{ name: '거대 쥐', condition: '상처 입음' }], people: [] });
+  assert.deepEqual([p.stats.dex, p.baseStats.dex], [4, 5]);
+  assert.deepEqual(p.statuses, [{ name: '부상', summary: '민첩 -1', turns: 3 }]);
+  const storage = publicState(at(start(), 'storage'));
+  assert.deepEqual(storage.here.items, [{ name: '은빛 열쇠', description: '문장이 새겨져 있다.' }]);
 });
 
 test('feasibility: item not in inventory is impossible', () => {
@@ -95,35 +159,35 @@ test('resolveTurn: chance from required vs my stat, plus item', () => {
   const s = at(start(), 'corridor');
   const { state, result } = resolveTurn(
     s,
-    intent({ action: 'attack', target: '쥐', required: 6, stat: 'dex', items_used: ['녹슨 단검'], item_bonus: 10 }),
+    intent({ action: 'attack', target: '쥐', required: 7, stat: 'dex', items_used: ['녹슨 단검'], item_bonus: 10 }),
     fixedRng(45),
   );
   assert.deepEqual(
     [result.required, result.statValue, result.itemBonus, result.chance, result.roll, result.grade, result.critMax, result.fumbleFrom],
-    [6, 5, 10, 50, 45, 'success', 10, 96],
+    [7, 5, 10, 50, 45, 'success', 10, 96],
   );
   assert.equal(state.enemies.find((e) => e.id === 'rat').hp, 0);
   assert.ok(result.changes.includes('거대 쥐 처치'));
 });
 
 test('resolveTurn: item bonus ignored when no items used', () => {
-  const { result } = resolveTurn(start(), intent({ action: 'examine', required: 5, stat: 'int', item_bonus: 20 }), fixedRng(10));
+  const { result } = resolveTurn(start(), intent({ action: 'examine', required: 6, stat: 'int', item_bonus: 20 }), fixedRng(10));
   assert.deepEqual([result.itemBonus, result.chance], [0, 30]);
 });
 
 test('resolveTurn: failure damage by risk, +1 with enemy, x2 on fumble', () => {
-  const hall = resolveTurn(start(), intent({ action: 'other', risk: 'high', required: 6 }), fixedRng(90));
+  const hall = resolveTurn(start(), intent({ action: 'other', risk: 'high', required: 7 }), fixedRng(90));
   assert.equal(hall.state.player.hp, 13);
-  const cor = resolveTurn(at(start(), 'corridor'), intent({ action: 'other', risk: 'high', required: 6 }), fixedRng(90));
+  const cor = resolveTurn(at(start(), 'corridor'), intent({ action: 'other', risk: 'high', required: 7 }), fixedRng(90));
   assert.equal(cor.state.player.hp, 12);
-  const fum = resolveTurn(start(), intent({ action: 'other', risk: 'medium', required: 6 }), fixedRng(97));
+  const fum = resolveTurn(start(), intent({ action: 'other', risk: 'medium', required: 7 }), fixedRng(97));
   assert.deepEqual([fum.result.grade, fum.state.player.hp, fum.state.dice.fumbles], ['fumble', 13, 1]);
 });
 
 test('resolveTurn: critical deals 4 damage and heals 1', () => {
   const s = at(start(), 'altar');
   s.player.hp = 5;
-  const { state, result } = resolveTurn(s, intent({ action: 'attack', target: '리치', stat: 'str', required: 4 }), fixedRng(1));
+  const { state, result } = resolveTurn(s, intent({ action: 'attack', target: '리치', stat: 'str', required: 5 }), fixedRng(1));
   assert.equal(result.grade, 'critical');
   assert.equal(state.enemies.find((e) => e.id === 'lich').hp, 2);
   assert.equal(state.player.hp, 6);
@@ -155,7 +219,7 @@ test('resolveTurn: explore success creates, connects and enters a new place', ()
   assert.ok(state.locations.find((l) => l.id === 'hall').exits.some((x) => x.to === tower.id));
   assert.equal(state.player.location_id, tower.id);
   assert.equal(state.visitedTurns[tower.id], 1);
-  assert.ok(result.changes.includes('종탑(으)로 이동'));
+  assert.ok(result.changes.includes('종탑으로 이동'));
 });
 
 test('relevant traits feed the chance; irrelevant ones do not', () => {
@@ -172,25 +236,25 @@ test('allies add 10% each (max 30%) at the goal location only', () => {
     { id: 'w', name: '늑대', ally: true, location_id: null, remote: true, met: { turn: 1 } },
     { id: 'x', name: '건달', ally: true, location_id: null, remote: true, met: { turn: 1 } },
   );
-  const boss = resolveTurn(s, intent({ action: 'attack', target: '리치', stat: 'str', required: 4 }), fixedRng(99));
+  const boss = resolveTurn(s, intent({ action: 'attack', target: '리치', stat: 'str', required: 5 }), fixedRng(99));
   assert.deepEqual([boss.result.allyBonus, boss.result.chance], [20, 70]);
-  const hall = resolveTurn(at(structuredClone(s), 'hall'), intent({ action: 'other', stat: 'str', required: 4 }), fixedRng(99));
+  const hall = resolveTurn(at(structuredClone(s), 'hall'), intent({ action: 'other', stat: 'str', required: 5 }), fixedRng(99));
   assert.equal(hall.result.allyBonus, 0);
 });
 
 test('trait passive crit, fumble and damage_taken modifiers', () => {
   const lucky = createInitialState(makeScenario(), [trait({ crit: 2 })]);
-  assert.equal(resolveTurn(lucky, intent({ action: 'other', required: 6 }), fixedRng(10)).result.grade, 'critical');
+  assert.equal(resolveTurn(lucky, intent({ action: 'other', required: 7 }), fixedRng(10)).result.grade, 'critical');
   const jinx = createInitialState(makeScenario(), [trait({ fumble: 3, damage_taken: 1 }, { good: false })]);
-  const bad = resolveTurn(jinx, intent({ action: 'other', required: 6, risk: 'medium' }), fixedRng(93));
+  const bad = resolveTurn(jinx, intent({ action: 'other', required: 7, risk: 'medium' }), fixedRng(93));
   assert.deepEqual([bad.result.grade, bad.state.player.hp], ['fumble', 12]);
   const calm = createInitialState(makeScenario(), [trait({ damage_taken: -1 })]);
-  assert.equal(resolveTurn(calm, intent({ action: 'other', required: 6, risk: 'medium' }), fixedRng(90)).state.player.hp, 15);
+  assert.equal(resolveTurn(calm, intent({ action: 'other', required: 7, risk: 'medium' }), fixedRng(90)).state.player.hp, 15);
 });
 
 test('attack_damage and heal modifiers; heal item turn ignores effect_hp', () => {
   const strong = at(createInitialState(makeScenario(), [trait({ attack_damage: 1 })]), 'altar');
-  const hit = resolveTurn(strong, intent({ action: 'attack', target: '리치', stat: 'str', required: 4 }), fixedRng(50));
+  const hit = resolveTurn(strong, intent({ action: 'attack', target: '리치', stat: 'str', required: 5 }), fixedRng(50));
   assert.equal(hit.state.enemies.find((e) => e.id === 'lich').hp, 3);
   const healer = at(createInitialState(makeScenario(), [trait({ heal: 1 })]), 'crypt');
   healer.player.hp = 5;
@@ -204,7 +268,7 @@ test('AI effects apply only on success and are clamped', () => {
   s.player.hp = 10;
   const ate = resolveTurn(s, intent({ action: 'other', trivial: true, effect_hp: 9, effect_stat: 'str+2' }), fixedRng(50));
   assert.deepEqual([ate.state.player.hp, ate.state.player.stats.str], [15, 6]);
-  const fail = resolveTurn(s, intent({ action: 'other', required: 8, risk: 'low', effect_hp: 3, effect_stat: 'int+1' }), fixedRng(90));
+  const fail = resolveTurn(s, intent({ action: 'other', required: 9, risk: 'low', effect_hp: 3, effect_stat: 'int+1' }), fixedRng(90));
   assert.deepEqual([fail.state.player.hp, fail.state.player.stats.int], [10, 3]);
 });
 
@@ -226,7 +290,7 @@ test('checkEnding: death, victory, timeout', () => {
 test('resolveTurn sets ending when hp hits 0', () => {
   const s = start();
   s.player.hp = 2;
-  const { state } = resolveTurn(s, intent({ action: 'other', risk: 'deadly', required: 8 }), fixedRng(90));
+  const { state } = resolveTurn(s, intent({ action: 'other', risk: 'deadly', required: 9 }), fixedRng(90));
   assert.deepEqual([state.player.hp, state.ending], [0, 'death']);
 });
 
